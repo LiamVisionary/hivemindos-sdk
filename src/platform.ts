@@ -241,7 +241,15 @@ export type HivemindOSManagedCapability = {
   idempotent: boolean;
   approval: "never" | "policy" | "always";
   asynchronous: boolean;
-  requestFormat: "json" | "multipart";
+  requestFormat: "json" | "multipart" | "binary";
+};
+
+export type HivemindOSManagedInvocation<TResult = JsonValue> = {
+  serviceId: HivemindOSPlatformServiceId;
+  operationId: string | null;
+  status: number;
+  chargedCredits: number;
+  result: TResult;
 };
 
 export type HivemindOSProject = {
@@ -638,19 +646,19 @@ export class HivemindOSClient {
     invoke: (serviceId: HivemindOSPlatformServiceId, path: string, input?: Record<string, unknown>, options?: HivemindOSRequestOptions & {
       method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
       connectionId?: string;
-    }) => this.request<Record<string, unknown>>("POST", `/services/${encoded(serviceId)}/invoke`, {
+    }) => this.request<HivemindOSManagedInvocation>("POST", `/services/${encoded(serviceId)}/invoke`, {
       path,
       input,
       method: options?.method,
       connectionId: options?.connectionId,
     }, options),
-    invokeOperation: (serviceId: HivemindOSPlatformServiceId, operationId: string, input?: Record<string, unknown>, options?: HivemindOSRequestOptions & {
+    invokeOperation: <TResult = JsonValue>(serviceId: HivemindOSPlatformServiceId, operationId: string, input?: Record<string, unknown>, options?: HivemindOSRequestOptions & {
       pathParameters?: Record<string, string>;
       query?: Record<string, string | number | boolean>;
       approvalId?: string;
       fileIds?: string[];
       connectionId?: string;
-    }) => this.request<Record<string, unknown>>("POST", `/services/${encoded(serviceId)}/invoke`, {
+    }) => this.request<HivemindOSManagedInvocation<TResult>>("POST", `/services/${encoded(serviceId)}/invoke`, {
       operationId,
       input,
       pathParameters: options?.pathParameters,

@@ -89,6 +89,8 @@ test("publishes the headless Platform API contract", () => {
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("managed-wallets"));
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("hivemind-database"));
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("integration-broker"));
+  assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("hive-compute"));
+  assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("testnet-faucet"));
   assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("*"));
   assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("wallets.create"));
   assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("services.invoke.hive-research"));
@@ -283,6 +285,17 @@ test("Platform API client exposes project-scoped capabilities, files, approvals,
   }, { idempotencyKey: "connection-create-1" });
   await client.webhooks.deliveries({ webhookId: "webhook_1", status: "failed", limit: 25 });
   await client.webhooks.rotateSecret("webhook_1", { idempotencyKey: "webhook-rotate-1" });
+  await client.services.invokeOperation("hive-compute", "artifacts.upload", {
+    encryptedMimeType: "application/json",
+    encryptionPublicKeySha256: "a".repeat(64),
+    encryptedKey: "ZW5jcnlwdGVkLWtleQ==",
+    chunkSize: 5,
+    chunks: 1,
+  }, {
+    pathParameters: { jobId: "job_1", artifactId: "artifact_1" },
+    fileIds: ["file_1"],
+    idempotencyKey: "compute-artifact-upload-1",
+  });
 
   assert.equal(calls[0].url, "https://api.hivemindos.app/v1/services?probe=true");
   assert.equal(calls[1].url, "https://api.hivemindos.app/v1/services/app-hosting/invoke");
@@ -299,6 +312,19 @@ test("Platform API client exposes project-scoped capabilities, files, approvals,
   assert.equal(JSON.parse(calls[4].init.body).credentials.apiKey, "service-credential");
   assert.equal(calls[5].url, "https://api.hivemindos.app/v1/webhook-deliveries?webhookId=webhook_1&status=failed&limit=25");
   assert.equal(calls[6].url, "https://api.hivemindos.app/v1/webhooks/webhook_1/rotate-secret");
+  assert.equal(calls[7].url, "https://api.hivemindos.app/v1/services/hive-compute/invoke");
+  assert.deepEqual(JSON.parse(calls[7].init.body), {
+    operationId: "artifacts.upload",
+    input: {
+      encryptedMimeType: "application/json",
+      encryptionPublicKeySha256: "a".repeat(64),
+      encryptedKey: "ZW5jcnlwdGVkLWtleQ==",
+      chunkSize: 5,
+      chunks: 1,
+    },
+    pathParameters: { jobId: "job_1", artifactId: "artifact_1" },
+    files: [{ fileId: "file_1" }],
+  });
   for (const call of calls) {
     assert.equal(new Headers(call.init?.headers).get("x-hivemindos-project"), "project_product");
     assert.equal(String(call.init?.body || "").includes("hmos_live_project_test"), false);

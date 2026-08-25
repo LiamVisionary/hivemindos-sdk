@@ -106,6 +106,8 @@ The default base URL is `https://api.hivemindos.app/v1`. Mutations require an id
 
 The client also exposes project CRUD, usage and audit queries, 25 MB managed file uploads, protected connection metadata, input-bound service-action approvals, asynchronous runs, wallet and order history, and webhook update, secret-rotation, delivery-receipt, and replay methods.
 
+Hive Compute and testnet faucet operations use the same client and account balance. Invoke their registered operation ids through `services.invokeOperation`; successful responses include the exact `chargedCredits`. Confidential compute inputs can be uploaded as managed ciphertext files and attached to the `artifacts.upload` binary capability with `fileIds`.
+
 ## Compatibility policy
 
 The package follows semantic versioning. Additive contract changes are minor releases. Breaking changes require a major release. The `HIVEMINDOS_COMPATIBILITY_VERSION` constant identifies the current public contract generation.
