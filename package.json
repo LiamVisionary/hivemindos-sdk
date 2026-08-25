@@ -1,6 +1,6 @@
 {
   "name": "@hivemindos/sdk",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Stable public compatibility contracts for HivemindOS integrations.",
   "license": "MIT",
   "type": "module",
