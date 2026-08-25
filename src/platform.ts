@@ -1,4 +1,4 @@
-import type { ApiEnvelope, JsonValue } from "./index.js";
+import type { ApiEnvelope, JsonValue } from "./index.ts";
 
 export const HIVEMINDOS_PLATFORM_API_VERSION = "v1" as const;
 export const HIVEMINDOS_PLATFORM_API_BASE_URL = "https://api.hivemindos.app/v1" as const;
