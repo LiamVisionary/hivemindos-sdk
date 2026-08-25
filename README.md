@@ -5,7 +5,7 @@
 It contains only:
 
 - API success and failure envelope types;
-- a typed client for the hosted HivemindOS Platform API;
+- a typed client for the hosted HivemindOS SuperAgent API;
 - managed-service capability, project, usage, file, connection, database, credit, wallet, trading, run, approval, artifact, webhook, and API-key contracts;
 - governed action risk, side-effect, confirmation, and descriptor contracts;
 - connector manifest contracts; and
@@ -36,7 +36,7 @@ export const readExample = defineHiveActionDescriptor({
 });
 ```
 
-## Platform API
+## SuperAgent API
 
 Create the first scoped API key from an existing HivemindOS credit account, then use that key with the client:
 
@@ -82,9 +82,11 @@ const result = await hivemind.services.invokeOperation(
 
 API-key policy is immutable and delegated keys may only become narrower. Use `allowedServices` or `excludedServices` for the managed-service boundary and `allowedOperations` or `excludedOperations` for the exact endpoint and capability boundary. Exclusions are immediately resolved to allowlists so newly introduced services and operations do not become accessible by accident. Project-bound keys are permanently isolated to one project and all descendants inherit that binding.
 
+Exact operation allowlists must include the supporting Platform actions used by the workflow. A worker that permanently deletes Cloud Superbrain memory needs `services.invoke.cloud-superbrain.memory.delete`, `approvals.create`, and `approvals.decide`; a worker that revokes its own key also needs `apiKeys.revoke`.
+
 Idempotency is isolated per API key, so sibling keys may safely reuse their own idempotency naming scheme without replaying one another's response or managed action. Signed webhooks inherit their creator key's resolved service boundary, receive only matching service events, and stop receiving deliveries if that key or an ancestor is revoked or expires.
 
-Limits are keyed by the exported `HIVEMINDOS_PLATFORM_OPERATION_IDS`. `"*"` caps the whole key, base selectors such as `"services.invoke"` aggregate matching calls, service selectors cap one managed service, and `hivemindOSServiceInvocationOperationId("hive-research", "analyses.create")` selects one exact capability. Every matching key and ancestor limit is enforced, so child keys cannot bypass a parent budget. Request limits use fixed minute, hour, and day windows; `maxConcurrent` limits in-flight calls. Rate-limited responses return HTTP `429`, `Retry-After`, and the affected operation id; the client preserves typed `operationId`, `metric`, and `retryAfterSeconds` fields on the failed result.
+Limits are keyed by the exported `HIVEMINDOS_PLATFORM_OPERATION_IDS`. That symbol keeps its existing name for SDK compatibility even though the public product is the SuperAgent API. `"*"` caps the whole key, base selectors such as `"services.invoke"` aggregate matching calls, service selectors cap one managed service, and `hivemindOSServiceInvocationOperationId("hive-research", "analyses.create")` selects one exact capability. Every matching key and ancestor limit is enforced, so child keys cannot bypass a parent budget. Request limits use fixed minute, hour, and day windows; `maxConcurrent` limits in-flight calls. Rate-limited responses return HTTP `429`, `Retry-After`, and the affected operation id; the client preserves typed `operationId`, `metric`, and `retryAfterSeconds` fields on the failed result.
 
 `creditsPerDay` is available on the operations in `HIVEMINDOS_PLATFORM_CREDIT_METERED_OPERATION_IDS`: managed-wallet creation, wallet execution, signing, and managed-trading execution. It reserves the maximum quoted charge before work begins and reconciles the limit to the final charge. Other managed services continue to debit the same authenticated HivemindOS credit account through their owning service.
 

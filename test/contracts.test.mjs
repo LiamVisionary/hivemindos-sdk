@@ -76,7 +76,7 @@ test("exposes connector and API-envelope helpers", () => {
   assert.equal(isApiFailure({ ok: true }), false);
 });
 
-test("publishes the headless Platform API contract", () => {
+test("publishes the headless SuperAgent API contract", () => {
   assert.equal(HIVEMINDOS_PLATFORM_API_VERSION, "v1");
   assert.equal(HIVEMINDOS_PLATFORM_API_BASE_URL, "https://api.hivemindos.app/v1");
   assert.ok(HIVEMINDOS_PLATFORM_SCOPES.includes("wallets:transact"));
@@ -107,7 +107,7 @@ test("publishes the headless Platform API contract", () => {
   assert.equal(HIVEMINDOS_DATABASE_CONFIRMATIONS.migrateToCloud, "MOVE DATABASE TO CLOUD");
 });
 
-test("Platform API client uses stable routes and never leaks its key into payloads", async () => {
+test("SuperAgent API client uses stable routes and never leaks its key into payloads", async () => {
   const calls = [];
   const client = new HivemindOSClient({
     apiKey: "hmos_live_test",
@@ -150,7 +150,7 @@ test("Platform API client uses stable routes and never leaks its key into payloa
   assert.equal(String(calls[1].init.body).includes("hmos_live_test"), false);
 });
 
-test("Platform API key bootstrap sends the credit credential only in its protected header", async () => {
+test("SuperAgent API key bootstrap sends the credit credential only in its protected header", async () => {
   const calls = [];
   const result = await createHivemindOSApiKey({
     creditToken: "hmos_credit_test",
@@ -187,7 +187,7 @@ test("Platform API key bootstrap sends the credit credential only in its protect
   });
 });
 
-test("Platform API client preserves actionable endpoint-limit failures", async () => {
+test("SuperAgent API client preserves actionable endpoint-limit failures", async () => {
   const client = new HivemindOSClient({
     apiKey: "hmos_live_limited",
     fetch: async () => Response.json({
@@ -206,7 +206,7 @@ test("Platform API client preserves actionable endpoint-limit failures", async (
   assert.equal(result.retryAfterSeconds, 27);
 });
 
-test("Platform API client exposes confirmed database writes and binary workspace transfers", async () => {
+test("SuperAgent API client exposes confirmed database writes and binary workspace transfers", async () => {
   const calls = [];
   const client = new HivemindOSClient({
     apiKey: "hmos_live_database_test",
@@ -248,7 +248,7 @@ test("Platform API client exposes confirmed database writes and binary workspace
   assert.equal(new Headers(calls[3].init.headers).get("accept"), "application/zip");
 });
 
-test("Platform API client exposes project-scoped capabilities, files, approvals, and webhook delivery controls", async () => {
+test("SuperAgent API client exposes project-scoped capabilities, files, approvals, and webhook delivery controls", async () => {
   const calls = [];
   const client = new HivemindOSClient({
     apiKey: "hmos_live_project_test",
