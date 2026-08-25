@@ -83,15 +83,19 @@ test("publishes the headless Platform API contract", () => {
   assert.ok(HIVEMINDOS_PLATFORM_SCOPES.includes("trading:execute"));
   assert.ok(HIVEMINDOS_PLATFORM_SCOPES.includes("databases:read"));
   assert.ok(HIVEMINDOS_PLATFORM_SCOPES.includes("databases:write"));
+  assert.ok(HIVEMINDOS_PLATFORM_SCOPES.includes("projects:write"));
+  assert.ok(HIVEMINDOS_PLATFORM_SCOPES.includes("files:write"));
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("hive-research"));
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("managed-wallets"));
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("hivemind-database"));
+  assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("integration-broker"));
   assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("*"));
   assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("wallets.create"));
   assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("services.invoke.hive-research"));
   assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("runs.create.hive-research"));
   assert.equal(hivemindOSServiceInvocationOperationId("hive-research"), "services.invoke.hive-research");
   assert.equal(hivemindOSRunCreateOperationId("hive-research"), "runs.create.hive-research");
+  assert.equal(hivemindOSServiceInvocationOperationId("hive-research", "analyses.create"), "services.invoke.hive-research.analyses.create");
   assert.deepEqual(HIVEMINDOS_PLATFORM_CREDIT_METERED_OPERATION_IDS, [
     "wallets.create",
     "wallets.transactions.create",
@@ -118,6 +122,7 @@ test("Platform API client uses stable routes and never leaks its key into payloa
     label: "Research worker",
     scopes: ["services:read", "services:invoke"],
     allowedServices: ["hive-research"],
+    allowedOperations: ["services.invoke.hive-research.analyses.create"],
     limits: {
       "*": { requestsPerHour: 500 },
       "services.invoke.hive-research": { requestsPerMinute: 10, maxConcurrent: 2 },
@@ -134,6 +139,7 @@ test("Platform API client uses stable routes and never leaks its key into payloa
     label: "Research worker",
     scopes: ["services:read", "services:invoke"],
     allowedServices: ["hive-research"],
+    allowedOperations: ["services.invoke.hive-research.analyses.create"],
     limits: {
       "*": { requestsPerHour: 500 },
       "services.invoke.hive-research": { requestsPerMinute: 10, maxConcurrent: 2 },
@@ -149,6 +155,8 @@ test("Platform API key bootstrap sends the credit credential only in its protect
     label: "Backend",
     scopes: ["services:read", "wallets:create"],
     excludedServices: ["managed-trading"],
+    projectId: "project_backend",
+    excludedOperations: ["trading.orders.create"],
     limits: {
       "*": { requestsPerDay: 10_000 },
       "wallets.create": { requestsPerMinute: 2, creditsPerDay: 100 },
@@ -168,6 +176,8 @@ test("Platform API key bootstrap sends the credit credential only in its protect
     label: "Backend",
     scopes: ["services:read", "wallets:create"],
     excludedServices: ["managed-trading"],
+    projectId: "project_backend",
+    excludedOperations: ["trading.orders.create"],
     limits: {
       "*": { requestsPerDay: 10_000 },
       "wallets.create": { requestsPerMinute: 2, creditsPerDay: 100 },
@@ -234,4 +244,63 @@ test("Platform API client exposes confirmed database writes and binary workspace
   assert.equal(new Headers(calls[2].init.headers).get("content-length"), "4");
   assert.equal(calls[3].url, "https://api.hivemindos.app/v1/databases/transfers/transfer_1/archive");
   assert.equal(new Headers(calls[3].init.headers).get("accept"), "application/zip");
+});
+
+test("Platform API client exposes project-scoped capabilities, files, approvals, and webhook delivery controls", async () => {
+  const calls = [];
+  const client = new HivemindOSClient({
+    apiKey: "hmos_live_project_test",
+    projectId: "project_product",
+    fetch: async (url, init) => {
+      calls.push({ url: String(url), init });
+      return Response.json({ ok: true, capabilities: [], file: { id: "file_1" }, approval: { id: "approval_1" }, deliveries: [] });
+    },
+  });
+
+  await client.services.list({ probe: true });
+  await client.services.invokeOperation("app-hosting", "sites.publish", { siteId: "site_1" }, {
+    approvalId: "approval_1",
+    connectionId: "connection_hosting",
+    idempotencyKey: "invoke-site-publish",
+  });
+  await client.files.upload({
+    name: "brief.txt",
+    contentType: "text/plain",
+    bytes: new TextEncoder().encode("hello"),
+  }, { idempotencyKey: "file-upload-1" });
+  await client.approvals.createServiceAction({
+    serviceId: "app-hosting",
+    operationId: "sites.publish",
+    input: { siteId: "site_1" },
+    connectionId: "connection_hosting",
+  }, { idempotencyKey: "approval-create-1" });
+  await client.connections.create({
+    name: "Hosting access",
+    kind: "api_key",
+    serviceId: "app-hosting",
+    credentials: { apiKey: "service-credential" },
+    metadata: { authMode: "header", credentialField: "apiKey", targetName: "x-service-key" },
+  }, { idempotencyKey: "connection-create-1" });
+  await client.webhooks.deliveries({ webhookId: "webhook_1", status: "failed", limit: 25 });
+  await client.webhooks.rotateSecret("webhook_1", { idempotencyKey: "webhook-rotate-1" });
+
+  assert.equal(calls[0].url, "https://api.hivemindos.app/v1/services?probe=true");
+  assert.equal(calls[1].url, "https://api.hivemindos.app/v1/services/app-hosting/invoke");
+  assert.deepEqual(JSON.parse(calls[1].init.body), {
+    operationId: "sites.publish",
+    input: { siteId: "site_1" },
+    approvalId: "approval_1",
+    connectionId: "connection_hosting",
+  });
+  assert.equal(calls[2].url, "https://api.hivemindos.app/v1/files");
+  assert.equal(new Headers(calls[2].init.headers).get("x-file-name"), "brief.txt");
+  assert.equal(new Headers(calls[2].init.headers).get("content-length"), "5");
+  assert.equal(calls[4].url, "https://api.hivemindos.app/v1/connections");
+  assert.equal(JSON.parse(calls[4].init.body).credentials.apiKey, "service-credential");
+  assert.equal(calls[5].url, "https://api.hivemindos.app/v1/webhook-deliveries?webhookId=webhook_1&status=failed&limit=25");
+  assert.equal(calls[6].url, "https://api.hivemindos.app/v1/webhooks/webhook_1/rotate-secret");
+  for (const call of calls) {
+    assert.equal(new Headers(call.init?.headers).get("x-hivemindos-project"), "project_product");
+    assert.equal(String(call.init?.body || "").includes("hmos_live_project_test"), false);
+  }
 });

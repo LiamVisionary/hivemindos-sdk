@@ -7,6 +7,14 @@ export const HIVEMINDOS_PLATFORM_SCOPES = [
   "services:read",
   "services:invoke",
   "credits:read",
+  "projects:read",
+  "projects:write",
+  "usage:read",
+  "audit:read",
+  "files:read",
+  "files:write",
+  "connections:read",
+  "connections:write",
   "databases:read",
   "databases:write",
   "wallets:read",
@@ -36,7 +44,9 @@ export const HIVEMINDOS_PLATFORM_SERVICE_IDS = [
   "x-transcript",
   "reddit-voc",
   "media-studio",
+  "photo-keyworder",
   "app-hosting",
+  "hive-compute",
   "gpu-rentals",
   "managed-bookings",
   "managed-socials",
@@ -47,6 +57,7 @@ export const HIVEMINDOS_PLATFORM_SERVICE_IDS = [
   "copy-trading",
   "hive-bridge",
   "outbound-email",
+  "integration-broker",
   "testnet-faucet",
   "miroshark",
   "managed-models",
@@ -62,8 +73,25 @@ export type HivemindOSPlatformServiceId = (typeof HIVEMINDOS_PLATFORM_SERVICE_ID
 
 const HIVEMINDOS_PLATFORM_STATIC_OPERATION_IDS = [
   "services.list",
+  "capabilities.list",
   "services.invoke",
   "credits.balance.read",
+  "projects.list",
+  "projects.create",
+  "projects.read",
+  "projects.update",
+  "projects.archive",
+  "usage.read",
+  "auditEvents.list",
+  "files.list",
+  "files.create",
+  "files.read",
+  "files.delete",
+  "connections.list",
+  "connections.create",
+  "connections.read",
+  "connections.update",
+  "connections.delete",
   "apiKeys.list",
   "apiKeys.create",
   "apiKeys.revoke",
@@ -84,40 +112,53 @@ const HIVEMINDOS_PLATFORM_STATIC_OPERATION_IDS = [
   "wallets.policy.update",
   "wallets.transactions.quote",
   "wallets.transactions.create",
+  "wallets.transactions.list",
+  "wallets.transactions.read",
   "wallets.signatures.quote",
   "wallets.signatures.create",
   "trading.quotes.create",
   "trading.orders.create",
+  "trading.orders.list",
+  "trading.orders.read",
   "trading.positions.list",
   "runs.list",
   "runs.create",
   "runs.read",
   "runs.cancel",
   "approvals.list",
+  "approvals.create",
   "approvals.decide",
   "artifacts.list",
   "artifacts.content.read",
   "webhooks.list",
   "webhooks.create",
+  "webhooks.update",
+  "webhooks.rotate",
   "webhooks.disable",
+  "webhookDeliveries.list",
+  "webhookDeliveries.replay",
 ] as const;
 
 export type HivemindOSPlatformOperationId =
   | "*"
   | (typeof HIVEMINDOS_PLATFORM_STATIC_OPERATION_IDS)[number]
   | `services.invoke.${HivemindOSPlatformServiceId}`
-  | `runs.create.${HivemindOSPlatformServiceId}`;
+  | `services.invoke.${HivemindOSPlatformServiceId}.${string}`
+  | `runs.create.${HivemindOSPlatformServiceId}`
+  | `runs.create.${HivemindOSPlatformServiceId}.${string}`;
 
 export function hivemindOSServiceInvocationOperationId(
   serviceId: HivemindOSPlatformServiceId,
-): `services.invoke.${HivemindOSPlatformServiceId}` {
-  return `services.invoke.${serviceId}`;
+  operationId?: string,
+): `services.invoke.${HivemindOSPlatformServiceId}` | `services.invoke.${HivemindOSPlatformServiceId}.${string}` {
+  return operationId ? `services.invoke.${serviceId}.${operationId}` : `services.invoke.${serviceId}`;
 }
 
 export function hivemindOSRunCreateOperationId(
   serviceId: HivemindOSPlatformServiceId,
-): `runs.create.${HivemindOSPlatformServiceId}` {
-  return `runs.create.${serviceId}`;
+  operationId?: string,
+): `runs.create.${HivemindOSPlatformServiceId}` | `runs.create.${HivemindOSPlatformServiceId}.${string}` {
+  return operationId ? `runs.create.${serviceId}.${operationId}` : `runs.create.${serviceId}`;
 }
 
 export const HIVEMINDOS_PLATFORM_OPERATION_IDS: readonly HivemindOSPlatformOperationId[] = Object.freeze([
@@ -157,12 +198,17 @@ export type HivemindOSApiKeyServiceSelection =
   | { allowedServices?: HivemindOSPlatformServiceId[]; excludedServices?: never }
   | { allowedServices?: never; excludedServices?: HivemindOSPlatformServiceId[] };
 
+export type HivemindOSApiKeyOperationSelection =
+  | { allowedOperations?: HivemindOSPlatformOperationId[]; excludedOperations?: never }
+  | { allowedOperations?: never; excludedOperations?: HivemindOSPlatformOperationId[] };
+
 export type HivemindOSApiKeyCreate = {
   label: string;
   scopes: HivemindOSPlatformScope[];
   expiresAt?: string;
+  projectId?: string;
   limits?: HivemindOSApiKeyLimits;
-} & HivemindOSApiKeyServiceSelection;
+} & HivemindOSApiKeyServiceSelection & HivemindOSApiKeyOperationSelection;
 
 export type HivemindOSPlatformService = {
   id: HivemindOSPlatformServiceId;
@@ -170,6 +216,8 @@ export type HivemindOSPlatformService = {
   description: string;
   category: "agent" | "app" | "data" | "finance" | "integration" | "media" | "platform";
   status: "available" | "coming-soon" | "setup-required" | "unavailable";
+  operationCount: number;
+  capabilitiesUrl: string;
   operations: Array<{
     id: string;
     method: "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
@@ -178,6 +226,86 @@ export type HivemindOSPlatformService = {
     limitOperationId: HivemindOSPlatformOperationId;
     description: string;
   }>;
+};
+
+export type HivemindOSManagedCapability = {
+  id: string;
+  operationId: HivemindOSPlatformOperationId;
+  runOperationId: HivemindOSPlatformOperationId | null;
+  serviceId: HivemindOSPlatformServiceId;
+  name: string;
+  description: string;
+  method: "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
+  path: string;
+  mode: "read" | "write" | "execute";
+  idempotent: boolean;
+  approval: "never" | "policy" | "always";
+  asynchronous: boolean;
+  requestFormat: "json" | "multipart";
+};
+
+export type HivemindOSProject = {
+  id: string;
+  name: string;
+  description: string | null;
+  status: "active" | "archived";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type HivemindOSUsage = {
+  projectId: string | null;
+  requests: number;
+  failures: number;
+  chargedCredits: number;
+  averageDurationMs: number;
+  operations: Array<{
+    operationId: HivemindOSPlatformOperationId;
+    requests: number;
+    failures: number;
+    chargedCredits: number;
+    averageDurationMs: number;
+  }>;
+};
+
+export type HivemindOSAuditEvent = {
+  id: string;
+  projectId: string | null;
+  apiKeyId: string;
+  operationId: HivemindOSPlatformOperationId;
+  serviceId: HivemindOSPlatformServiceId | null;
+  method: string;
+  path: string;
+  status: number;
+  durationMs: number;
+  chargedCredits: number;
+  createdAt: string;
+};
+
+export type HivemindOSFile = {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  sha256: string;
+  purpose: string | null;
+  status: "active" | "deleted";
+  createdAt: string;
+  updatedAt: string;
+  downloadUrl: string | null;
+};
+
+export type HivemindOSConnection = {
+  id: string;
+  name: string;
+  kind: "api_key" | "oauth" | "wallet" | "database" | "mcp" | "custom";
+  serviceId: HivemindOSPlatformServiceId | null;
+  status: "active" | "disabled" | "deleted";
+  credentialFields: string[];
+  metadata: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+  lastVerifiedAt: string | null;
 };
 
 export type HivemindOSCreditsBalance = {
@@ -267,7 +395,9 @@ export type HivemindOSApiKey = {
   scopes: HivemindOSPlatformScope[];
   status: "active" | "revoked";
   parentKeyId: string | null;
+  projectId: string | null;
   allowedServices: HivemindOSPlatformServiceId[] | null;
+  allowedOperations: HivemindOSPlatformOperationId[] | null;
   limits: HivemindOSApiKeyLimits;
   expiresAt: string | null;
   createdAt: string;
@@ -408,6 +538,7 @@ export type HivemindOSRun = {
   id: string;
   serviceId: HivemindOSPlatformServiceId;
   operation: string;
+  operationId: string | null;
   status: "queued" | "running" | "approval_required" | "succeeded" | "failed" | "cancelled";
   progress: number | null;
   output: JsonValue | null;
@@ -415,6 +546,8 @@ export type HivemindOSRun = {
   maximumDebitCredits: number;
   chargedCredits: number;
   createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
   updatedAt: string;
 };
 
@@ -447,8 +580,23 @@ export type HivemindOSWebhook = {
   createdAt: string;
 };
 
+export type HivemindOSWebhookDelivery = {
+  id: string;
+  webhookId: string;
+  eventId: string;
+  status: "pending" | "delivered" | "failed";
+  attempts: number;
+  responseStatus: number | null;
+  lastError: string | null;
+  nextAttemptAt: string | null;
+  deliveredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type HivemindOSClientOptions = {
   apiKey: string;
+  projectId?: string;
   baseUrl?: string;
   fetch?: typeof globalThis.fetch;
 };
@@ -462,6 +610,15 @@ function encoded(value: string): string {
   return encodeURIComponent(value);
 }
 
+function queryPath(path: string, values: Record<string, string | number | boolean | undefined>): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined) query.set(key, String(value));
+  }
+  const rendered = query.toString();
+  return rendered ? `${path}?${rendered}` : path;
+}
+
 export class HivemindOSClient {
   readonly apiKeys = {
     list: () => this.request<{ apiKeys: HivemindOSApiKey[] }>("GET", "/api-keys"),
@@ -472,9 +629,83 @@ export class HivemindOSClient {
   };
 
   readonly services = {
-    list: () => this.request<{ services: HivemindOSPlatformService[] }>("GET", "/services"),
-    invoke: (serviceId: HivemindOSPlatformServiceId, path: string, input?: Record<string, unknown>, options?: HivemindOSRequestOptions & { method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT" }) =>
-      this.request<Record<string, unknown>>("POST", `/services/${encoded(serviceId)}/invoke`, { path, input, method: options?.method }, options),
+    list: (options: { probe?: boolean } = {}) => this.request<{ services: HivemindOSPlatformService[] }>("GET", queryPath("/services", options)),
+    pricing: (serviceId?: HivemindOSPlatformServiceId) =>
+      this.request<Record<string, unknown>>("GET", queryPath("/pricing", { service: serviceId })),
+    capabilities: (serviceId?: HivemindOSPlatformServiceId) => this.request<{ capabilities: HivemindOSManagedCapability[] }>(
+      "GET", serviceId ? `/capabilities/${encoded(serviceId)}` : "/capabilities",
+    ),
+    invoke: (serviceId: HivemindOSPlatformServiceId, path: string, input?: Record<string, unknown>, options?: HivemindOSRequestOptions & {
+      method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
+      connectionId?: string;
+    }) => this.request<Record<string, unknown>>("POST", `/services/${encoded(serviceId)}/invoke`, {
+      path,
+      input,
+      method: options?.method,
+      connectionId: options?.connectionId,
+    }, options),
+    invokeOperation: (serviceId: HivemindOSPlatformServiceId, operationId: string, input?: Record<string, unknown>, options?: HivemindOSRequestOptions & {
+      pathParameters?: Record<string, string>;
+      query?: Record<string, string | number | boolean>;
+      approvalId?: string;
+      fileIds?: string[];
+      connectionId?: string;
+    }) => this.request<Record<string, unknown>>("POST", `/services/${encoded(serviceId)}/invoke`, {
+      operationId,
+      input,
+      pathParameters: options?.pathParameters,
+      query: options?.query,
+      approvalId: options?.approvalId,
+      files: options?.fileIds?.map((fileId) => ({ fileId })),
+      connectionId: options?.connectionId,
+    }, options),
+  };
+
+  readonly projects = {
+    list: () => this.request<{ projects: HivemindOSProject[] }>("GET", "/projects"),
+    create: (input: { name: string; description?: string | null }, options?: HivemindOSRequestOptions) =>
+      this.request<{ project: HivemindOSProject }>("POST", "/projects", input, options),
+    get: (id: string) => this.request<{ project: HivemindOSProject }>("GET", `/projects/${encoded(id)}`),
+    update: (id: string, input: { name?: string; description?: string | null }, options?: HivemindOSRequestOptions) =>
+      this.request<{ project: HivemindOSProject }>("PATCH", `/projects/${encoded(id)}`, input, options),
+    archive: (id: string, options?: HivemindOSRequestOptions) =>
+      this.request<{ project: HivemindOSProject }>("DELETE", `/projects/${encoded(id)}`, undefined, options),
+  };
+
+  readonly usage = {
+    get: (query: { since?: string; until?: string; operationId?: string; serviceId?: string } = {}) =>
+      this.request<{ usage: HivemindOSUsage }>("GET", queryPath("/usage", query)),
+    auditEvents: (query: { since?: string; until?: string; operationId?: string; serviceId?: string; limit?: number } = {}) =>
+      this.request<{ auditEvents: HivemindOSAuditEvent[] }>("GET", queryPath("/audit-events", query)),
+  };
+
+  readonly files = {
+    list: () => this.request<{ files: HivemindOSFile[] }>("GET", "/files"),
+    upload: (input: { name: string; contentType: string; bytes: Uint8Array<ArrayBuffer> | ArrayBuffer; purpose?: string; sha256?: string }, options?: HivemindOSRequestOptions) =>
+      this.uploadFile(input, options),
+    download: (id: string) => this.rawRequest("GET", `/files/${encoded(id)}`, { accept: "*/*" }),
+    remove: (id: string, options?: HivemindOSRequestOptions) =>
+      this.request<{ file: HivemindOSFile }>("DELETE", `/files/${encoded(id)}`, undefined, options),
+  };
+
+  readonly connections = {
+    list: () => this.request<{ connections: HivemindOSConnection[] }>("GET", "/connections"),
+    create: (input: {
+      name: string;
+      kind: HivemindOSConnection["kind"];
+      serviceId?: HivemindOSPlatformServiceId | null;
+      credentials: Record<string, string>;
+      metadata?: Record<string, string>;
+    }, options?: HivemindOSRequestOptions) => this.request<{ connection: HivemindOSConnection }>("POST", "/connections", input, options),
+    get: (id: string) => this.request<{ connection: HivemindOSConnection }>("GET", `/connections/${encoded(id)}`),
+    update: (id: string, input: {
+      name?: string;
+      status?: "active" | "disabled";
+      credentials?: Record<string, string>;
+      metadata?: Record<string, string>;
+    }, options?: HivemindOSRequestOptions) => this.request<{ connection: HivemindOSConnection }>("PATCH", `/connections/${encoded(id)}`, input, options),
+    remove: (id: string, options?: HivemindOSRequestOptions) =>
+      this.request<{ connection: HivemindOSConnection }>("DELETE", `/connections/${encoded(id)}`, undefined, options),
   };
 
   readonly credits = {
@@ -526,6 +757,10 @@ export class HivemindOSClient {
       this.request<{ quote: ManagedWalletSignatureQuote; approval: HivemindOSApproval }>("POST", `/wallets/${encoded(id)}/signatures/quote`, input, options),
     sign: (id: string, input: { quoteId: string; approvalId: string }, options?: HivemindOSRequestOptions) =>
       this.request<{ signature: ManagedWalletSignature }>("POST", `/wallets/${encoded(id)}/signatures`, input, options),
+    transactions: (id: string) =>
+      this.request<{ transactions: ManagedWalletTransaction[] }>("GET", `/wallets/${encoded(id)}/transactions`),
+    transaction: (id: string, transactionId: string) =>
+      this.request<{ transaction: ManagedWalletTransaction }>("GET", `/wallets/${encoded(id)}/transactions/${encoded(transactionId)}`),
   };
 
   readonly trading = {
@@ -533,6 +768,8 @@ export class HivemindOSClient {
       this.request<{ quote: ManagedTradingQuote }>("POST", "/trading/quotes", input, options),
     createOrder: (input: { quoteId: string; approvalId?: string }, options?: HivemindOSRequestOptions) =>
       this.request<{ order: ManagedTradingOrder }>("POST", "/trading/orders", input, options),
+    orders: () => this.request<{ orders: ManagedTradingOrder[] }>("GET", "/trading/orders"),
+    order: (id: string) => this.request<{ order: ManagedTradingOrder }>("GET", `/trading/orders/${encoded(id)}`),
     positions: (walletId?: string) => this.request<{ positions: ManagedTradingPosition[] }>(
       "GET",
       walletId ? `/trading/positions?walletId=${encoded(walletId)}` : "/trading/positions",
@@ -541,7 +778,18 @@ export class HivemindOSClient {
 
   readonly runs = {
     list: () => this.request<{ runs: HivemindOSRun[] }>("GET", "/runs"),
-    create: (input: { serviceId: HivemindOSPlatformServiceId; path: string; input?: Record<string, unknown>; method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT" }, options?: HivemindOSRequestOptions) =>
+    create: (input: {
+      serviceId: HivemindOSPlatformServiceId;
+      operationId?: string;
+      path?: string;
+      pathParameters?: Record<string, string>;
+      query?: Record<string, string | number | boolean>;
+      approvalId?: string;
+      connectionId?: string;
+      files?: Array<{ fileId: string; field?: string }>;
+      input?: Record<string, unknown>;
+      method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
+    }, options?: HivemindOSRequestOptions) =>
       this.request<{ run: HivemindOSRun }>("POST", "/runs", input, options),
     get: (id: string) => this.request<{ run: HivemindOSRun }>("GET", `/runs/${encoded(id)}`),
     cancel: (id: string, options?: HivemindOSRequestOptions) =>
@@ -550,6 +798,16 @@ export class HivemindOSClient {
 
   readonly approvals = {
     list: () => this.request<{ approvals: HivemindOSApproval[] }>("GET", "/approvals"),
+    createServiceAction: (input: {
+      serviceId: HivemindOSPlatformServiceId;
+      operationId: string;
+      pathParameters?: Record<string, string>;
+      query?: Record<string, string | number | boolean>;
+      input?: Record<string, unknown>;
+      connectionId?: string;
+      files?: Array<{ fileId: string; field?: string }>;
+    }, options?: HivemindOSRequestOptions) =>
+      this.request<{ approval: HivemindOSApproval }>("POST", "/approvals/service-actions", input, options),
     decide: (id: string, decision: "approve" | "reject", options?: HivemindOSRequestOptions) =>
       this.request<{ approval: HivemindOSApproval }>("POST", `/approvals/${encoded(id)}`, { decision }, options),
   };
@@ -559,17 +817,32 @@ export class HivemindOSClient {
       "GET",
       runId ? `/artifacts?runId=${encoded(runId)}` : "/artifacts",
     ),
+    download: (id: string) => this.rawRequest("GET", `/artifacts/${encoded(id)}/content`, { accept: "*/*" }),
   };
 
   readonly webhooks = {
     list: () => this.request<{ webhooks: HivemindOSWebhook[] }>("GET", "/webhooks"),
-    create: (input: { url: string; events: string[] }, options?: HivemindOSRequestOptions) =>
+    create: (input: { url: string; events: string[]; allowedServices?: HivemindOSPlatformServiceId[] }, options?: HivemindOSRequestOptions) =>
       this.request<{ webhook: HivemindOSWebhook; signingSecret: string }>("POST", "/webhooks", input, options),
+    update: (id: string, input: {
+      url?: string;
+      events?: string[];
+      status?: "active" | "disabled";
+      allowedServices?: HivemindOSPlatformServiceId[] | null;
+    }, options?: HivemindOSRequestOptions) =>
+      this.request<{ webhook: HivemindOSWebhook }>("PATCH", `/webhooks/${encoded(id)}`, input, options),
+    rotateSecret: (id: string, options?: HivemindOSRequestOptions) =>
+      this.request<{ webhook: HivemindOSWebhook; signingSecret: string }>("POST", `/webhooks/${encoded(id)}/rotate-secret`, {}, options),
+    deliveries: (query: { webhookId?: string; status?: HivemindOSWebhookDelivery["status"]; limit?: number } = {}) =>
+      this.request<{ deliveries: HivemindOSWebhookDelivery[] }>("GET", queryPath("/webhook-deliveries", query)),
+    replayDelivery: (id: string, options?: HivemindOSRequestOptions) =>
+      this.request<{ delivery: HivemindOSWebhookDelivery }>("POST", `/webhook-deliveries/${encoded(id)}/replay`, {}, options),
     remove: (id: string, options?: HivemindOSRequestOptions) =>
       this.request<{ webhook: HivemindOSWebhook }>("DELETE", `/webhooks/${encoded(id)}`, undefined, options),
   };
 
   private readonly apiKey: string;
+  private readonly projectId: string | null;
   private readonly baseUrl: string;
   private readonly fetcher: typeof globalThis.fetch;
 
@@ -577,6 +850,7 @@ export class HivemindOSClient {
     const apiKey = options.apiKey.trim();
     if (!apiKey) throw new Error("A HivemindOS API key is required.");
     this.apiKey = apiKey;
+    this.projectId = options.projectId?.trim() || null;
     this.baseUrl = (options.baseUrl?.trim() || HIVEMINDOS_PLATFORM_API_BASE_URL).replace(/\/+$/u, "");
     this.fetcher = options.fetch ?? globalThis.fetch;
     if (!this.fetcher) throw new Error("A fetch implementation is required.");
@@ -591,6 +865,7 @@ export class HivemindOSClient {
     const headers = new Headers(options.headers);
     headers.set("accept", "application/json");
     headers.set("authorization", `Bearer ${this.apiKey}`);
+    if (this.projectId) headers.set("x-hivemindos-project", this.projectId);
     if (body !== undefined) headers.set("content-type", "application/json");
     if (options.idempotencyKey) headers.set("idempotency-key", options.idempotencyKey);
     const response = await this.fetcher(`${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`, {
@@ -618,6 +893,7 @@ export class HivemindOSClient {
     const headers = new Headers(options.headers);
     headers.set("accept", "application/json");
     headers.set("authorization", `Bearer ${this.apiKey}`);
+    if (this.projectId) headers.set("x-hivemindos-project", this.projectId);
     headers.set("content-type", "application/zip");
     headers.set("content-length", String(bytes.byteLength));
     if (options.idempotencyKey) headers.set("idempotency-key", options.idempotencyKey);
@@ -632,10 +908,37 @@ export class HivemindOSClient {
       : { ok: false, error: `HivemindOS request failed with HTTP ${response.status}.` };
   }
 
+  private async uploadFile(
+    input: { name: string; contentType: string; bytes: Uint8Array<ArrayBuffer> | ArrayBuffer; purpose?: string; sha256?: string },
+    options: HivemindOSRequestOptions = {},
+  ): Promise<ApiEnvelope<{ file: HivemindOSFile }, HivemindOSPlatformFailure>> {
+    const name = input.name.trim();
+    if (!name || name.length > 180) throw new Error("A file name up to 180 characters is required.");
+    const bytes = input.bytes instanceof Uint8Array ? input.bytes : new Uint8Array(input.bytes);
+    if (bytes.byteLength < 1 || bytes.byteLength > 25 * 1024 * 1024) throw new Error("Files must be between 1 byte and 25 MB.");
+    const headers = new Headers(options.headers);
+    headers.set("accept", "application/json");
+    headers.set("authorization", `Bearer ${this.apiKey}`);
+    headers.set("content-type", input.contentType);
+    headers.set("content-length", String(bytes.byteLength));
+    headers.set("x-file-name", name);
+    if (input.purpose) headers.set("x-hivemindos-file-purpose", input.purpose);
+    if (input.sha256) headers.set("x-content-sha256", input.sha256);
+    if (this.projectId) headers.set("x-hivemindos-project", this.projectId);
+    if (options.idempotencyKey) headers.set("idempotency-key", options.idempotencyKey);
+    const response = await this.fetcher(`${this.baseUrl}/files`, { method: "POST", headers, body: bytes });
+    const payload = await response.json().catch(() => null) as ApiEnvelope<{ file: HivemindOSFile }, HivemindOSPlatformFailure> | null;
+    return payload && typeof payload === "object" && "ok" in payload
+      ? payload
+      : { ok: false, error: `HivemindOS request failed with HTTP ${response.status}.` };
+  }
+
   private rawRequest(method: "GET", path: string, input: { accept: string }) {
+    const headers = new Headers({ accept: input.accept, authorization: `Bearer ${this.apiKey}` });
+    if (this.projectId) headers.set("x-hivemindos-project", this.projectId);
     return this.fetcher(`${this.baseUrl}${path}`, {
       method,
-      headers: { accept: input.accept, authorization: `Bearer ${this.apiKey}` },
+      headers,
     });
   }
 }
@@ -661,8 +964,11 @@ export async function createHivemindOSApiKey(input: HivemindOSApiKeyCreate & {
       label: input.label,
       scopes: input.scopes,
       expiresAt: input.expiresAt,
+      projectId: input.projectId,
       allowedServices: input.allowedServices,
       excludedServices: input.excludedServices,
+      allowedOperations: input.allowedOperations,
+      excludedOperations: input.excludedOperations,
       limits: input.limits,
     }),
   });
