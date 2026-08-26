@@ -97,6 +97,7 @@ const HIVEMINDOS_PLATFORM_STATIC_OPERATION_IDS = [
   "apiKeys.revoke",
   "databases.account.read",
   "databases.account.provision",
+  "databases.account.deprovision",
   "databases.query",
   "databases.actions",
   "databases.transfers.create",
@@ -326,12 +327,16 @@ export type HivemindOSCreditsBalance = {
 
 export const HIVEMINDOS_DATABASE_CONFIRMATIONS = {
   provision: "CREATE MANAGED DATABASE",
+  deprovision: "DELETE MANAGED DATABASE",
   createRecord: "CREATE DATABASE RECORD",
   updateRecord: "UPDATE DATABASE RECORD",
   deleteRecord: "DELETE DATABASE RECORD",
   createDatabase: "CREATE DATABASE",
   createTable: "CREATE DATABASE TABLE",
   createField: "CREATE DATABASE FIELD",
+  deleteDatabase: "DELETE DATABASE",
+  deleteTable: "DELETE DATABASE TABLE",
+  deleteField: "DELETE DATABASE FIELD",
   migrateToCloud: "MOVE DATABASE TO CLOUD",
   migrateToLocal: "MOVE DATABASE TO THIS DEVICE",
 } as const;
@@ -377,6 +382,9 @@ export type HivemindOSDatabaseAction =
   | { action: "create-database"; workspaceId: number; name: string; confirmation: typeof HIVEMINDOS_DATABASE_CONFIRMATIONS.createDatabase }
   | { action: "create-table"; databaseId: number; name: string; confirmation: typeof HIVEMINDOS_DATABASE_CONFIRMATIONS.createTable }
   | { action: "create-field"; tableId: number; name: string; fieldType: "text" | "long_text" | "number" | "boolean" | "date" | "url" | "email" | "phone_number" | "file"; confirmation: typeof HIVEMINDOS_DATABASE_CONFIRMATIONS.createField }
+  | { action: "delete-database"; databaseId: number; confirmation: typeof HIVEMINDOS_DATABASE_CONFIRMATIONS.deleteDatabase }
+  | { action: "delete-table"; tableId: number; confirmation: typeof HIVEMINDOS_DATABASE_CONFIRMATIONS.deleteTable }
+  | { action: "delete-field"; fieldId: number; confirmation: typeof HIVEMINDOS_DATABASE_CONFIRMATIONS.deleteField }
   | { action: "create-record"; tableId: number; fields: Record<string, JsonValue>; confirmation: typeof HIVEMINDOS_DATABASE_CONFIRMATIONS.createRecord }
   | { action: "update-record"; tableId: number; recordId: number; fields: Record<string, JsonValue>; confirmation: typeof HIVEMINDOS_DATABASE_CONFIRMATIONS.updateRecord }
   | { action: "delete-record"; tableId: number; recordId: number; confirmation: typeof HIVEMINDOS_DATABASE_CONFIRMATIONS.deleteRecord };
@@ -724,6 +732,8 @@ export class HivemindOSClient {
     account: () => this.request<HivemindOSDatabaseAccount>("GET", "/databases/account"),
     provision: (input: { confirmation: typeof HIVEMINDOS_DATABASE_CONFIRMATIONS.provision }, options?: HivemindOSRequestOptions) =>
       this.request<HivemindOSDatabaseAccount>("POST", "/databases/account", input, options),
+    deprovision: (input: { confirmation: typeof HIVEMINDOS_DATABASE_CONFIRMATIONS.deprovision }, options?: HivemindOSRequestOptions) =>
+      this.request<{ active: false }>("DELETE", "/databases/account", input, options),
     query: (input: HivemindOSDatabaseQuery) =>
       this.request<{ location: "cloud"; data: JsonValue }>("POST", "/databases/query", input),
     mutate: (input: HivemindOSDatabaseAction, options?: HivemindOSRequestOptions) =>

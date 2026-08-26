@@ -105,6 +105,10 @@ test("publishes the headless SuperAgent API contract", () => {
     "trading.orders.create",
   ]);
   assert.equal(HIVEMINDOS_DATABASE_CONFIRMATIONS.migrateToCloud, "MOVE DATABASE TO CLOUD");
+  assert.equal(HIVEMINDOS_DATABASE_CONFIRMATIONS.deprovision, "DELETE MANAGED DATABASE");
+  assert.equal(HIVEMINDOS_DATABASE_CONFIRMATIONS.deleteDatabase, "DELETE DATABASE");
+  assert.equal(HIVEMINDOS_DATABASE_CONFIRMATIONS.deleteTable, "DELETE DATABASE TABLE");
+  assert.equal(HIVEMINDOS_DATABASE_CONFIRMATIONS.deleteField, "DELETE DATABASE FIELD");
 });
 
 test("SuperAgent API client uses stable routes and never leaks its key into payloads", async () => {
@@ -220,6 +224,10 @@ test("SuperAgent API client exposes confirmed database writes and binary workspa
     { confirmation: HIVEMINDOS_DATABASE_CONFIRMATIONS.provision },
     { idempotencyKey: "database-provision-1" },
   );
+  await client.databases.deprovision(
+    { confirmation: HIVEMINDOS_DATABASE_CONFIRMATIONS.deprovision },
+    { idempotencyKey: "database-deprovision-1" },
+  );
   await client.databases.mutate(
     {
       action: "create-record",
@@ -239,13 +247,16 @@ test("SuperAgent API client exposes confirmed database writes and binary workspa
 
   assert.equal(calls[0].url, "https://api.hivemindos.app/v1/databases/account");
   assert.equal(new Headers(calls[0].init.headers).get("idempotency-key"), "database-provision-1");
-  assert.match(String(calls[1].init.body), /CREATE DATABASE RECORD/);
-  assert.equal(String(calls[1].init.body).includes("hmos_live_database_test"), false);
-  assert.equal(calls[2].url, "https://api.hivemindos.app/v1/databases/transfers/transfer_1/parts/1");
-  assert.equal(new Headers(calls[2].init.headers).get("content-type"), "application/zip");
-  assert.equal(new Headers(calls[2].init.headers).get("content-length"), "4");
-  assert.equal(calls[3].url, "https://api.hivemindos.app/v1/databases/transfers/transfer_1/archive");
-  assert.equal(new Headers(calls[3].init.headers).get("accept"), "application/zip");
+  assert.equal(calls[1].url, "https://api.hivemindos.app/v1/databases/account");
+  assert.equal(calls[1].init.method, "DELETE");
+  assert.equal(new Headers(calls[1].init.headers).get("idempotency-key"), "database-deprovision-1");
+  assert.match(String(calls[2].init.body), /CREATE DATABASE RECORD/);
+  assert.equal(String(calls[2].init.body).includes("hmos_live_database_test"), false);
+  assert.equal(calls[3].url, "https://api.hivemindos.app/v1/databases/transfers/transfer_1/parts/1");
+  assert.equal(new Headers(calls[3].init.headers).get("content-type"), "application/zip");
+  assert.equal(new Headers(calls[3].init.headers).get("content-length"), "4");
+  assert.equal(calls[4].url, "https://api.hivemindos.app/v1/databases/transfers/transfer_1/archive");
+  assert.equal(new Headers(calls[4].init.headers).get("accept"), "application/zip");
 });
 
 test("SuperAgent API client exposes project-scoped capabilities, files, approvals, and webhook delivery controls", async () => {
