@@ -6,6 +6,7 @@ It contains only:
 
 - API success and failure envelope types;
 - a typed client for the hosted HivemindOS SuperAgent API;
+- the canonical remote MCP address and key-filtered action-search contracts;
 - managed-service capability, project, usage, file, connection, database, credit, wallet, trading, run, approval, artifact, webhook, and API-key contracts;
 - governed action risk, side-effect, confirmation, and descriptor contracts;
 - connector manifest contracts; and
@@ -49,10 +50,11 @@ import {
 const issued = await createHivemindOSApiKey({
   creditToken: process.env.HIVEMINDOS_CREDIT_TOKEN!,
   label: "Production backend",
-  scopes: ["services:read", "services:invoke", "credits:read", "databases:read", "databases:write"],
+  scopes: ["services:read", "services:invoke", "credits:read", "credits:write", "databases:read", "databases:write"],
   allowedServices: ["hive-research", "hivemind-database"],
   allowedOperations: [
     "capabilities.list",
+    "actions.list",
     "services.invoke.hive-research.analyses.create",
     "databases.account.read",
     "databases.query",
@@ -72,6 +74,7 @@ const hivemind = new HivemindOSClient({
 });
 const services = await hivemind.services.list({ probe: true });
 const capabilities = await hivemind.services.capabilities("hive-research");
+const actions = await hivemind.actions.search({ query: "research", serviceId: "hive-research" });
 const result = await hivemind.services.invokeOperation(
   "hive-research",
   "analyses.create",
@@ -105,6 +108,60 @@ if (!workspaces.ok) throw new Error(workspaces.error);
 ```
 
 The default base URL is `https://api.hivemindos.app/v1`. Mutations require an idempotency key. Use separate least-privilege keys for execution and approvals. HivemindOS credits pay for metered managed-service usage; managed database capacity is included with eligible subscriptions. Wallet assets remain separate and fund transfers or trades.
+
+## Remote MCP
+
+Connect an MCP-compatible agent to the same API without writing a custom wrapper:
+
+```json
+{
+  "mcpServers": {
+    "hivemindos": {
+      "type": "http",
+      "url": "https://api.hivemindos.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${HIVEMINDOS_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+The SDK exports this address as `HIVEMINDOS_SUPERAGENT_MCP_URL`. MCP keys need `services:read` and `actions.list`, plus only the scopes, services, and exact operations the agent should use. The server exposes four tools: `hive_services_list`, `hive_actions_search`, `hive_read`, and `hive_write`. Search results are filtered by the key before the agent sees them; normal project boundaries, endpoint limits, approvals, idempotency, and Agent Credit charging still apply.
+
+## Buy Agent Credits with x402
+
+Give the client an x402-aware `fetch` implementation, then call the credit top-up endpoint. The API returns an HTTP 402 challenge, the x402 client pays it on Base, and the retry credits the API key's existing HivemindOS account. HivemindOS fixes the recipient, network, asset, amount, and credited account server-side.
+
+```bash
+npm install @hivemindos/sdk @x402/fetch @x402/evm viem
+```
+
+```ts
+import { ExactEvmScheme } from "@x402/evm";
+import { wrapFetchWithPaymentFromConfig } from "@x402/fetch";
+import { privateKeyToAccount } from "viem/accounts";
+
+const payer = privateKeyToAccount(process.env.X402_PAYER_PRIVATE_KEY as `0x${string}`);
+const x402Fetch = wrapFetchWithPaymentFromConfig(fetch, {
+  schemes: [{ network: "eip155:8453", client: new ExactEvmScheme(payer) }],
+});
+
+const hive = new HivemindOSClient({
+  apiKey: process.env.HIVEMINDOS_API_KEY!,
+  fetch: x402Fetch,
+});
+
+const topUp = await hive.credits.topUp(
+  { amountUsd: 5 },
+  { idempotencyKey: "agent-credit-top-up-2026-08-27-001" },
+);
+
+if (!topUp.ok) throw new Error(topUp.error);
+console.log(topUp.credits.balanceCredits);
+```
+
+The key needs `credits:write` and the `credits.x402.topUp` operation. Ask the wallet owner before signing or sending a payment, use one idempotency key for the challenge and signed retry, and keep the same key when retrying an uncertain response.
 
 The client also exposes project CRUD, usage and audit queries, 25 MB managed file uploads, protected connection metadata, input-bound service-action approvals, asynchronous runs, wallet and order history, and webhook update, secret-rotation, delivery-receipt, and replay methods.
 

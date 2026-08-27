@@ -2,11 +2,13 @@ import type { ApiEnvelope, JsonValue } from "./index.ts";
 
 export const HIVEMINDOS_PLATFORM_API_VERSION = "v1" as const;
 export const HIVEMINDOS_PLATFORM_API_BASE_URL = "https://api.hivemindos.app/v1" as const;
+export const HIVEMINDOS_SUPERAGENT_MCP_URL = "https://api.hivemindos.app/mcp" as const;
 
 export const HIVEMINDOS_PLATFORM_SCOPES = [
   "services:read",
   "services:invoke",
   "credits:read",
+  "credits:write",
   "projects:read",
   "projects:write",
   "usage:read",
@@ -74,8 +76,10 @@ export type HivemindOSPlatformServiceId = (typeof HIVEMINDOS_PLATFORM_SERVICE_ID
 const HIVEMINDOS_PLATFORM_STATIC_OPERATION_IDS = [
   "services.list",
   "capabilities.list",
+  "actions.list",
   "services.invoke",
   "credits.balance.read",
+  "credits.x402.topUp",
   "projects.list",
   "projects.create",
   "projects.read",
@@ -245,6 +249,26 @@ export type HivemindOSManagedCapability = {
   requestFormat: "json" | "multipart" | "binary";
 };
 
+export type HivemindOSPlatformAction = {
+  actionId: HivemindOSPlatformOperationId;
+  operationId: string;
+  serviceId: HivemindOSPlatformServiceId | null;
+  kind: "rest" | "service" | "run";
+  name: string;
+  description: string;
+  mode: "read" | "write" | "execute";
+  method: "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
+  path: string;
+  requiredScope: HivemindOSPlatformScope | null;
+  idempotent: boolean;
+  destructive: boolean;
+  approval: "never" | "policy" | "always";
+  asynchronous: boolean;
+  requestFormat: "json" | "multipart" | "binary";
+  invocation: Record<string, unknown>;
+  input: Record<string, unknown>;
+};
+
 export type HivemindOSManagedInvocation<TResult = JsonValue> = {
   serviceId: HivemindOSPlatformServiceId;
   operationId: string | null;
@@ -323,6 +347,13 @@ export type HivemindOSCreditsBalance = {
   totalCreditedCredits: number;
   totalDebitedCredits: number;
   updatedAt: string;
+};
+
+export type HivemindOSCreditTopUp = {
+  creditedUsd: number;
+  creditedCredits: number;
+  receiptId: string | null;
+  credits: HivemindOSCreditsBalance;
 };
 
 export const HIVEMINDOS_DATABASE_CONFIRMATIONS = {
@@ -677,6 +708,16 @@ export class HivemindOSClient {
     }, options),
   };
 
+  readonly actions = {
+    search: (query: {
+      query?: string;
+      actionId?: HivemindOSPlatformOperationId;
+      serviceId?: HivemindOSPlatformServiceId;
+      mode?: HivemindOSPlatformAction["mode"];
+      limit?: number;
+    } = {}) => this.request<{ actions: HivemindOSPlatformAction[]; count: number }>("GET", queryPath("/actions", query)),
+  };
+
   readonly projects = {
     list: () => this.request<{ projects: HivemindOSProject[] }>("GET", "/projects"),
     create: (input: { name: string; description?: string | null }, options?: HivemindOSRequestOptions) =>
@@ -726,6 +767,8 @@ export class HivemindOSClient {
 
   readonly credits = {
     balance: () => this.request<{ credits: HivemindOSCreditsBalance }>("GET", "/credits/balance"),
+    topUp: (input: { amountUsd: number }, options?: HivemindOSRequestOptions) =>
+      this.request<HivemindOSCreditTopUp>("POST", "/credits/x402/top-up", input, options),
   };
 
   readonly databases = {

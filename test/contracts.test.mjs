@@ -8,6 +8,7 @@ import {
   HIVEMINDOS_COMPATIBILITY_VERSION,
   HIVEMINDOS_PLATFORM_API_BASE_URL,
   HIVEMINDOS_PLATFORM_API_VERSION,
+  HIVEMINDOS_SUPERAGENT_MCP_URL,
   HIVEMINDOS_PLATFORM_CREDIT_METERED_OPERATION_IDS,
   HIVEMINDOS_PLATFORM_OPERATION_IDS,
   HIVEMINDOS_PLATFORM_SCOPES,
@@ -79,11 +80,13 @@ test("exposes connector and API-envelope helpers", () => {
 test("publishes the headless SuperAgent API contract", () => {
   assert.equal(HIVEMINDOS_PLATFORM_API_VERSION, "v1");
   assert.equal(HIVEMINDOS_PLATFORM_API_BASE_URL, "https://api.hivemindos.app/v1");
+  assert.equal(HIVEMINDOS_SUPERAGENT_MCP_URL, "https://api.hivemindos.app/mcp");
   assert.ok(HIVEMINDOS_PLATFORM_SCOPES.includes("wallets:transact"));
   assert.ok(HIVEMINDOS_PLATFORM_SCOPES.includes("trading:execute"));
   assert.ok(HIVEMINDOS_PLATFORM_SCOPES.includes("databases:read"));
   assert.ok(HIVEMINDOS_PLATFORM_SCOPES.includes("databases:write"));
   assert.ok(HIVEMINDOS_PLATFORM_SCOPES.includes("projects:write"));
+  assert.ok(HIVEMINDOS_PLATFORM_SCOPES.includes("credits:write"));
   assert.ok(HIVEMINDOS_PLATFORM_SCOPES.includes("files:write"));
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("hive-research"));
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("managed-wallets"));
@@ -93,6 +96,8 @@ test("publishes the headless SuperAgent API contract", () => {
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("testnet-faucet"));
   assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("*"));
   assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("wallets.create"));
+  assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("credits.x402.topUp"));
+  assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("actions.list"));
   assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("services.invoke.hive-research"));
   assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("runs.create.hive-research"));
   assert.equal(hivemindOSServiceInvocationOperationId("hive-research"), "services.invoke.hive-research");
@@ -124,6 +129,7 @@ test("SuperAgent API client uses stable routes and never leaks its key into payl
   });
 
   await client.wallets.create({ name: "Treasury", network: "base" }, { idempotencyKey: "wallet-create-1" });
+  await client.credits.topUp({ amountUsd: 5 }, { idempotencyKey: "credit-top-up-1" });
   await client.apiKeys.create({
     label: "Research worker",
     scopes: ["services:read", "services:invoke"],
@@ -134,14 +140,18 @@ test("SuperAgent API client uses stable routes and never leaks its key into payl
       "services.invoke.hive-research": { requestsPerMinute: 10, maxConcurrent: 2 },
     },
   }, { idempotencyKey: "research-worker-key-1" });
+  await client.actions.search({ query: "research", serviceId: "hive-research", mode: "execute", limit: 5 });
   assert.equal(calls[0].url, "https://api.hivemindos.app/v1/wallets");
   assert.equal(calls[0].init.method, "POST");
   assert.equal(new Headers(calls[0].init.headers).get("authorization"), "Bearer hmos_live_test");
   assert.equal(new Headers(calls[0].init.headers).get("idempotency-key"), "wallet-create-1");
   assert.equal(String(calls[0].init.body).includes("hmos_live_test"), false);
-  assert.equal(calls[1].url, "https://api.hivemindos.app/v1/api-keys");
-  assert.equal(new Headers(calls[1].init.headers).get("idempotency-key"), "research-worker-key-1");
-  assert.deepEqual(JSON.parse(calls[1].init.body), {
+  assert.equal(calls[1].url, "https://api.hivemindos.app/v1/credits/x402/top-up");
+  assert.equal(new Headers(calls[1].init.headers).get("idempotency-key"), "credit-top-up-1");
+  assert.deepEqual(JSON.parse(calls[1].init.body), { amountUsd: 5 });
+  assert.equal(calls[2].url, "https://api.hivemindos.app/v1/api-keys");
+  assert.equal(new Headers(calls[2].init.headers).get("idempotency-key"), "research-worker-key-1");
+  assert.deepEqual(JSON.parse(calls[2].init.body), {
     label: "Research worker",
     scopes: ["services:read", "services:invoke"],
     allowedServices: ["hive-research"],
@@ -151,7 +161,9 @@ test("SuperAgent API client uses stable routes and never leaks its key into payl
       "services.invoke.hive-research": { requestsPerMinute: 10, maxConcurrent: 2 },
     },
   });
-  assert.equal(String(calls[1].init.body).includes("hmos_live_test"), false);
+  assert.equal(String(calls[2].init.body).includes("hmos_live_test"), false);
+  assert.equal(calls[3].url, "https://api.hivemindos.app/v1/actions?query=research&serviceId=hive-research&mode=execute&limit=5");
+  assert.equal(calls[3].init.method, "GET");
 });
 
 test("SuperAgent API key bootstrap sends the credit credential only in its protected header", async () => {
