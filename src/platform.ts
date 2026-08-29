@@ -39,6 +39,7 @@ export type HivemindOSPlatformScope = (typeof HIVEMINDOS_PLATFORM_SCOPES)[number
 
 export const HIVEMINDOS_PLATFORM_SERVICE_IDS = [
   "hive-research",
+  "answer-engine",
   "swarm",
   "x-studio",
   "distill",

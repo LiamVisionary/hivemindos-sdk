@@ -89,6 +89,7 @@ test("publishes the headless SuperAgent API contract", () => {
   assert.ok(HIVEMINDOS_PLATFORM_SCOPES.includes("credits:write"));
   assert.ok(HIVEMINDOS_PLATFORM_SCOPES.includes("files:write"));
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("hive-research"));
+  assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("answer-engine"));
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("managed-wallets"));
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("hivemind-database"));
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("integration-broker"));
