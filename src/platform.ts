@@ -4,6 +4,26 @@ export const HIVEMINDOS_PLATFORM_API_VERSION = "v1" as const;
 export const HIVEMINDOS_PLATFORM_API_BASE_URL = "https://api.hivemindos.app/v1" as const;
 export const HIVEMINDOS_SUPERAGENT_MCP_URL = "https://api.hivemindos.app/mcp" as const;
 
+/**
+ * The same API held to a privacy tier. private: nothing sent reaches a
+ * service that keeps it. confidential: private, and models run in attested
+ * hardware. A key can be pinned to a tier; nothing loosens one.
+ */
+export const HIVEMINDOS_PRIVACY_TIERS = ["standard", "private", "confidential"] as const;
+export type HivemindOSPrivacyTier = (typeof HIVEMINDOS_PRIVACY_TIERS)[number];
+export const HIVEMINDOS_PRIVACY_BASE_URLS = {
+  standard: HIVEMINDOS_PLATFORM_API_BASE_URL,
+  private: "https://api.hivemindos.app/v1/private",
+  confidential: "https://api.hivemindos.app/v1/confidential",
+} as const satisfies Record<HivemindOSPrivacyTier, string>;
+
+/** The base URL for a client: a custom `baseUrl`, or the tier's. Both at once is a mistake, not a choice. */
+function platformBaseUrl(input: { baseUrl?: string; privacy?: HivemindOSPrivacyTier }) {
+  if (input.baseUrl?.trim() && input.privacy) throw new Error("Pass either baseUrl or privacy, not both.");
+  if (input.privacy && !HIVEMINDOS_PRIVACY_TIERS.includes(input.privacy)) throw new Error(`privacy must be one of: ${HIVEMINDOS_PRIVACY_TIERS.join(", ")}.`);
+  return (input.baseUrl?.trim() || HIVEMINDOS_PRIVACY_BASE_URLS[input.privacy ?? "standard"]).replace(/\/+$/u, "");
+}
+
 export const HIVEMINDOS_PLATFORM_SCOPES = [
   "services:read",
   "services:invoke",
@@ -214,6 +234,8 @@ export type HivemindOSApiKeyCreate = {
   expiresAt?: string;
   projectId?: string;
   limits?: HivemindOSApiKeyLimits;
+  /** Pin the key, and every key made from it, to this tier or a stricter one. */
+  privacy?: HivemindOSPrivacyTier;
 } & HivemindOSApiKeyServiceSelection & HivemindOSApiKeyOperationSelection;
 
 export type HivemindOSPlatformService = {
@@ -450,6 +472,7 @@ export type HivemindOSApiKey = {
   expiresAt: string | null;
   createdAt: string;
   lastUsedAt: string | null;
+  privacy: HivemindOSPrivacyTier;
 };
 
 export type ManagedWalletNetwork = "base" | "base-sepolia" | "ethereum" | "ethereum-sepolia" | "solana" | "solana-devnet";
@@ -646,6 +669,8 @@ export type HivemindOSClientOptions = {
   apiKey: string;
   projectId?: string;
   baseUrl?: string;
+  /** Call the API held to this privacy tier (its base URL). Not with baseUrl. */
+  privacy?: HivemindOSPrivacyTier;
   fetch?: typeof globalThis.fetch;
 };
 
@@ -913,7 +938,7 @@ export class HivemindOSClient {
     if (!apiKey) throw new Error("A HivemindOS API key is required.");
     this.apiKey = apiKey;
     this.projectId = options.projectId?.trim() || null;
-    this.baseUrl = (options.baseUrl?.trim() || HIVEMINDOS_PLATFORM_API_BASE_URL).replace(/\/+$/u, "");
+    this.baseUrl = platformBaseUrl(options);
     this.fetcher = options.fetch ?? globalThis.fetch;
     if (!this.fetcher) throw new Error("A fetch implementation is required.");
   }
@@ -1013,6 +1038,7 @@ export async function createHivemindOSApiKey(input: HivemindOSApiKeyCreate & {
 }) {
   const fetcher = input.fetch ?? globalThis.fetch;
   if (!fetcher) throw new Error("A fetch implementation is required.");
+  // `privacy` pins the key in the request body, whatever base URL creates it.
   const baseUrl = (input.baseUrl?.trim() || HIVEMINDOS_PLATFORM_API_BASE_URL).replace(/\/+$/u, "");
   const response = await fetcher(`${baseUrl}/api-keys`, {
     method: "POST",
@@ -1032,6 +1058,7 @@ export async function createHivemindOSApiKey(input: HivemindOSApiKeyCreate & {
       allowedOperations: input.allowedOperations,
       excludedOperations: input.excludedOperations,
       limits: input.limits,
+      privacy: input.privacy,
     }),
   });
   const payload = await response.json().catch(() => null);

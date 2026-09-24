@@ -13,6 +13,8 @@ import {
   HIVEMINDOS_PLATFORM_OPERATION_IDS,
   HIVEMINDOS_PLATFORM_SCOPES,
   HIVEMINDOS_PLATFORM_SERVICE_IDS,
+  HIVEMINDOS_PRIVACY_BASE_URLS,
+  HIVEMINDOS_PRIVACY_TIERS,
   HIVEMINDOS_DATABASE_CONFIRMATIONS,
   HivemindOSClient,
   createHivemindOSApiKey,
@@ -202,6 +204,40 @@ test("SuperAgent API key bootstrap sends the credit credential only in its prote
       "wallets.create": { requestsPerMinute: 2, creditsPerDay: 100 },
     },
   });
+});
+
+test("SuperAgent API privacy tiers select the tier's base URL and pin new keys", async () => {
+  assert.deepEqual(HIVEMINDOS_PRIVACY_TIERS, ["standard", "private", "confidential"]);
+  assert.deepEqual(HIVEMINDOS_PRIVACY_BASE_URLS, {
+    standard: "https://api.hivemindos.app/v1",
+    private: "https://api.hivemindos.app/v1/private",
+    confidential: "https://api.hivemindos.app/v1/confidential",
+  });
+  const urls = [];
+  const hive = new HivemindOSClient({
+    apiKey: "hmos_live_private",
+    privacy: "private",
+    fetch: async (url) => { urls.push(String(url)); return Response.json({ ok: true, services: [] }); },
+  });
+  await hive.services.list();
+  assert.equal(urls[0], "https://api.hivemindos.app/v1/private/services");
+  assert.throws(() => new HivemindOSClient({ apiKey: "hmos_live_x", privacy: "private", baseUrl: "https://example.test/v1" }), /either baseUrl or privacy/);
+  assert.throws(() => new HivemindOSClient({ apiKey: "hmos_live_x", privacy: "secret" }), /privacy must be one of/);
+
+  const calls = [];
+  await createHivemindOSApiKey({
+    creditToken: "hmos_credit_test",
+    label: "Private worker",
+    scopes: ["services:read"],
+    privacy: "confidential",
+    idempotencyKey: "private-worker-0001",
+    fetch: async (url, init) => {
+      calls.push({ url: String(url), body: JSON.parse(init.body) });
+      return Response.json({ ok: true, apiKey: { id: "key_1", privacy: "confidential" }, secret: "hmos_live_created" });
+    },
+  });
+  assert.equal(calls[0].url, "https://api.hivemindos.app/v1/api-keys");
+  assert.equal(calls[0].body.privacy, "confidential");
 });
 
 test("SuperAgent API client preserves actionable endpoint-limit failures", async () => {
