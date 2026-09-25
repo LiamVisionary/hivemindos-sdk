@@ -17,8 +17,10 @@ It does **not** contain the HivemindOS application, orchestration engine, hosted
 ## Install
 
 ```bash
-npm install @hivemindos/sdk
+npm install https://github.com/LiamVisionary/hivemindos-sdk/releases/download/v1.5.0/hivemindos-sdk-1.5.0.tgz
 ```
+
+It works with npm, pnpm and yarn, and is imported as `@hivemindos/sdk`. Installing straight from GitHub (`npm install github:LiamVisionary/hivemindos-sdk`) also works with npm, which builds it during install.
 
 ## Example
 
@@ -134,7 +136,7 @@ The SDK exports this address as `HIVEMINDOS_SUPERAGENT_MCP_URL`. MCP keys need `
 Give the client an x402-aware `fetch` implementation, then call the credit top-up endpoint. The API returns an HTTP 402 challenge, the x402 client pays it on Base, and the retry credits the API key's existing HivemindOS account. HivemindOS fixes the recipient, network, asset, amount, and credited account server-side.
 
 ```bash
-npm install @hivemindos/sdk @x402/fetch @x402/evm viem
+npm install https://github.com/LiamVisionary/hivemindos-sdk/releases/download/v1.5.0/hivemindos-sdk-1.5.0.tgz @x402/fetch @x402/evm viem
 ```
 
 ```ts
