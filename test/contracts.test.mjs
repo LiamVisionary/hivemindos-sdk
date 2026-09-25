@@ -97,6 +97,10 @@ test("publishes the headless SuperAgent API contract", () => {
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("integration-broker"));
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("hive-compute"));
   assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("testnet-faucet"));
+  assert.ok(HIVEMINDOS_PLATFORM_SERVICE_IDS.includes("universal-swaps"));
+  for (const operationId of ["swaps.tokens.list", "swaps.quote", "swaps.prepare", "swaps.execute", "swaps.list", "swaps.read", "swaps.routes.read"]) {
+    assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes(operationId), operationId);
+  }
   assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("*"));
   assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("wallets.create"));
   assert.ok(HIVEMINDOS_PLATFORM_OPERATION_IDS.includes("credits.x402.topUp"));
@@ -111,6 +115,7 @@ test("publishes the headless SuperAgent API contract", () => {
     "wallets.transactions.create",
     "wallets.signatures.create",
     "trading.orders.create",
+    "swaps.execute",
   ]);
   assert.equal(HIVEMINDOS_DATABASE_CONFIRMATIONS.migrateToCloud, "MOVE DATABASE TO CLOUD");
   assert.equal(HIVEMINDOS_DATABASE_CONFIRMATIONS.deprovision, "DELETE MANAGED DATABASE");
@@ -389,4 +394,39 @@ test("SuperAgent API client exposes project-scoped capabilities, files, approval
     assert.equal(new Headers(call.init?.headers).get("x-hivemindos-project"), "project_product");
     assert.equal(String(call.init?.body || "").includes("hmos_live_project_test"), false);
   }
+});
+
+test("SuperAgent API client routes universal swaps, custodial and self-custody", async () => {
+  const calls = [];
+  const client = new HivemindOSClient({
+    apiKey: "hmos_live_swaps",
+    fetch: async (url, init) => {
+      calls.push({ url: String(url), init });
+      return Response.json({ ok: true });
+    },
+  });
+
+  await client.swaps.tokens({ chainId: 8453 });
+  await client.swaps.quote({ from: "base:usdc", to: "solana:sol", amountOut: "0.8" }, { idempotencyKey: "swap-quote-1" });
+  await client.swaps.execute({ quoteId: "swap_quote_1", approvalId: "approval_1" }, { idempotencyKey: "swap-execute-1" });
+  await client.swaps.list();
+  await client.swaps.get("swap_1");
+  await client.swaps.prepare({ request: "swap 50 usdc on base to sol", sender: "0x1111111111111111111111111111111111111111", recipient: "So11111111111111111111111111111111111111112" });
+  await client.swaps.routeStatus("0xabc");
+
+  assert.deepEqual(calls.map((call) => `${call.init.method} ${call.url}`), [
+    "GET https://api.hivemindos.app/v1/swaps/tokens?chainId=8453",
+    "POST https://api.hivemindos.app/v1/swaps/quote",
+    "POST https://api.hivemindos.app/v1/swaps",
+    "GET https://api.hivemindos.app/v1/swaps",
+    "GET https://api.hivemindos.app/v1/swaps/swap_1",
+    "POST https://api.hivemindos.app/v1/swaps/prepare",
+    "GET https://api.hivemindos.app/v1/swaps/routes/0xabc",
+  ]);
+  assert.deepEqual(JSON.parse(calls[1].init.body), { from: "base:usdc", to: "solana:sol", amountOut: "0.8" });
+  assert.equal(new Headers(calls[1].init.headers).get("idempotency-key"), "swap-quote-1");
+  assert.deepEqual(JSON.parse(calls[2].init.body), { quoteId: "swap_quote_1", approvalId: "approval_1" });
+  assert.equal(new Headers(calls[2].init.headers).get("idempotency-key"), "swap-execute-1");
+  assert.equal(JSON.parse(calls[5].init.body).sender, "0x1111111111111111111111111111111111111111");
+  for (const call of calls) assert.equal(String(call.init.body || "").includes("hmos_live_swaps"), false);
 });

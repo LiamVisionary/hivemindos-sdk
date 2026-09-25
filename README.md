@@ -7,7 +7,7 @@ It contains only:
 - API success and failure envelope types;
 - a typed client for the hosted HivemindOS SuperAgent API;
 - the canonical remote MCP address and key-filtered action-search contracts;
-- managed-service capability, project, usage, file, connection, database, credit, wallet, trading, run, approval, artifact, webhook, and API-key contracts;
+- managed-service capability, project, usage, file, connection, database, credit, wallet, trading, universal swap, run, approval, artifact, webhook, and API-key contracts;
 - governed action risk, side-effect, confirmation, and descriptor contracts;
 - connector manifest contracts; and
 - Agent Plugins compatibility identifiers and manifest types.
@@ -91,7 +91,7 @@ Idempotency is isolated per API key, so sibling keys may safely reuse their own 
 
 Limits are keyed by the exported `HIVEMINDOS_PLATFORM_OPERATION_IDS`. That symbol keeps its existing name for SDK compatibility even though the public product is the SuperAgent API. `"*"` caps the whole key, base selectors such as `"services.invoke"` aggregate matching calls, service selectors cap one managed service, and `hivemindOSServiceInvocationOperationId("hive-research", "analyses.create")` selects one exact capability. Every matching key and ancestor limit is enforced, so child keys cannot bypass a parent budget. Request limits use fixed minute, hour, and day windows; `maxConcurrent` limits in-flight calls. Rate-limited responses return HTTP `429`, `Retry-After`, and the affected operation id; the client preserves typed `operationId`, `metric`, and `retryAfterSeconds` fields on the failed result.
 
-`creditsPerDay` is available on the operations in `HIVEMINDOS_PLATFORM_CREDIT_METERED_OPERATION_IDS`: managed-wallet creation, wallet execution, signing, and managed-trading execution. It reserves the maximum quoted charge before work begins and reconciles the limit to the final charge. Other managed services continue to debit the same authenticated HivemindOS credit account through their owning service.
+`creditsPerDay` is available on the operations in `HIVEMINDOS_PLATFORM_CREDIT_METERED_OPERATION_IDS`: managed-wallet creation, wallet execution, signing, managed-trading execution, and universal swap execution. It reserves the maximum quoted charge before work begins and reconciles the limit to the final charge. Other managed services continue to debit the same authenticated HivemindOS credit account through their owning service.
 
 Managed database access uses dedicated least-privilege scopes and exact confirmations:
 
@@ -162,6 +162,16 @@ console.log(topUp.credits.balanceCredits);
 ```
 
 The key needs `credits:write` and the `credits.x402.topUp` operation. Ask the wallet owner before signing or sending a payment, use one idempotency key for the challenge and signed retry, and keep the same key when retrying an uncertain response.
+
+Universal swaps turn any token into any other, on one chain or across chains. `swaps.quote` and `swaps.execute` swap from a HivemindOS wallet (`wallets:transact`), with `amount` to spend or `amountOut` to receive exactly, or plain words in `request`. `swaps.prepare` returns a checked, unsigned route for your own wallet to sign in order (`wallets:read`, no credits), and `swaps.routeStatus` follows its fill. `swaps.tokens`, `swaps.list`, and `swaps.get` read the rest.
+
+```ts
+const prepared = await hive.swaps.prepare({ from: "base:usdc", to: "solana:sol", amount: "50", sender, recipient });
+if (!prepared.ok) throw new Error(prepared.error);
+for (const tx of prepared.route.transactions) {
+  // EVM: send { to, data, value } with eth_sendTransaction. Solana: sign the base64 `transaction` and send it.
+}
+```
 
 The client also exposes project CRUD, usage and audit queries, 25 MB managed file uploads, protected connection metadata, input-bound service-action approvals, asynchronous runs, wallet and order history, and webhook update, secret-rotation, delivery-receipt, and replay methods.
 

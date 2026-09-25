@@ -88,6 +88,7 @@ export const HIVEMINDOS_PLATFORM_SERVICE_IDS = [
   "leadgen-data",
   "managed-wallets",
   "managed-trading",
+  "universal-swaps",
   "managed-agents",
   "managed-workflows",
 ] as const;
@@ -147,6 +148,13 @@ const HIVEMINDOS_PLATFORM_STATIC_OPERATION_IDS = [
   "trading.orders.list",
   "trading.orders.read",
   "trading.positions.list",
+  "swaps.tokens.list",
+  "swaps.quote",
+  "swaps.prepare",
+  "swaps.execute",
+  "swaps.list",
+  "swaps.read",
+  "swaps.routes.read",
   "runs.list",
   "runs.create",
   "runs.read",
@@ -201,6 +209,7 @@ export const HIVEMINDOS_PLATFORM_CREDIT_METERED_OPERATION_IDS = [
   "wallets.transactions.create",
   "wallets.signatures.create",
   "trading.orders.create",
+  "swaps.execute",
 ] as const satisfies readonly HivemindOSPlatformOperationId[];
 
 export type HivemindOSEndpointLimit = {
@@ -605,6 +614,168 @@ export type ManagedTradingPosition = {
   unrealizedPnlUsd: number | null;
 };
 
+export type UniversalSwapChain = {
+  id: number;
+  slug: string;
+  name: string;
+  vm: "evm" | "svm";
+  nativeSymbol: string;
+  /** A HivemindOS-managed wallet can start a swap here. Your own wallet can start one on any listed chain. */
+  canSwapFrom: boolean;
+  canSwapTo: boolean;
+};
+
+export type UniversalSwapToken = {
+  chainId: number;
+  symbol: string;
+  name: string;
+  address: string;
+  decimals: number;
+  native?: boolean;
+};
+
+export type UniversalSwapTradeType = "EXACT_INPUT" | "EXACT_OUTPUT";
+
+/** Spend an amount, or receive an exact amount. Never both. Decimal strings, or atomic integer strings. */
+export type UniversalSwapAmount =
+  | { amount?: string; amountAtomic?: string; amountOut?: never; amountOutAtomic?: never }
+  | { amount?: never; amountAtomic?: never; amountOut?: string; amountOutAtomic?: string };
+
+export type UniversalSwapRequest = {
+  /** Plain words, such as "swap 50 USDC on Base to SOL" or "i need 0.8 sol". */
+  request?: string;
+  /** "base:usdc", "solana:sol", or a contract or mint address. */
+  from?: string;
+  to?: string;
+  /** Chain slug where funds start when the words name none. Default "base". */
+  defaultChain?: string;
+  slippageBps?: number;
+} & UniversalSwapAmount;
+
+export type UniversalSwapQuoteRequest = UniversalSwapRequest & {
+  fromWalletId?: string;
+  toWalletId?: string;
+  /** Where the output lands, if not one of the account's own wallets. */
+  recipient?: string;
+  provisionMissingWallets?: boolean;
+};
+
+export type UniversalSwapPrepareRequest = UniversalSwapRequest & {
+  /** The address on the source chain that signs and pays. */
+  sender: string;
+  /** Required when the swap arrives on the other kind of chain (EVM and Solana). Defaults to `sender`. */
+  recipient?: string;
+};
+
+export type UniversalSwapTokenAmount = {
+  symbol: string;
+  address: string;
+  chain: string;
+  chainId: number;
+  chainName: string;
+  decimals: number | null;
+  /** False when the token was given as a raw contract address. */
+  verified: boolean;
+  amountAtomic: string;
+  amount: string | null;
+};
+
+export type UniversalSwapWalletView = { id: string; name: string; address: string };
+
+export type UniversalSwapQuote = {
+  id: string;
+  from: UniversalSwapTokenAmount;
+  to: UniversalSwapTokenAmount;
+  sourceWallet: UniversalSwapWalletView;
+  destinationWallet: UniversalSwapWalletView | null;
+  recipient: string;
+  crossChain: boolean;
+  steps: Array<{ id: string; description: string }>;
+  minimumOutputAmount: string | null;
+  priceImpactPercent: number;
+  estimatedInputUsd: number | null;
+  estimatedOutputUsd: number | null;
+  estimatedNetworkFeeUsd: number | null;
+  estimatedSeconds: number | null;
+  routeId: string | null;
+  /** How the request was read, when it was given in words. */
+  interpretation: string | null;
+  tradeType: UniversalSwapTradeType;
+  warnings: string[];
+  maximumDebitCredits: number;
+  expiresAt: string;
+  approvalRequired: boolean;
+  approvalId: string | null;
+};
+
+export type UniversalSwapProvisionedWallet = {
+  walletId: string;
+  address: string;
+  network: ManagedWalletNetwork;
+  reason: string;
+};
+
+export type UniversalSwap = {
+  id: string;
+  quoteId: string;
+  walletId: string;
+  status: "broadcast" | "filling" | "filled" | "refunded" | "failed";
+  transactionHash: string;
+  steps: Array<{ id: string; kind: "evm" | "svm"; description: string; transactionHash: string }>;
+  routeId: string | null;
+  crossChain: boolean;
+  from: UniversalSwapTokenAmount;
+  to: UniversalSwapTokenAmount;
+  chargedCredits: number;
+  createdAt: string;
+  updatedAt: string;
+  /** Live fill status of a cross-chain swap, on a single read. */
+  routeStatus?: string;
+  destinationTransactionHash?: string | null;
+};
+
+/** An unsigned transaction for your own wallet. Sign and send them in order. */
+export type UniversalSwapTransaction =
+  | { kind: "evm"; chainId: number; step: string; description: string; to: string; data: string; value: string; gas?: string }
+  | {
+    kind: "svm";
+    chainId: number;
+    step: string;
+    description: string;
+    /** Base64 unsigned v0 transaction with a fresh blockhash, or null when it must be built from `instructions`. */
+    transaction: string | null;
+    instructions: JsonValue[];
+    addressLookupTableAddresses: string[];
+  };
+
+export type UniversalSwapRoute = {
+  from: UniversalSwapTokenAmount;
+  to: UniversalSwapTokenAmount;
+  sender: string;
+  recipient: string;
+  tradeType: UniversalSwapTradeType;
+  crossChain: boolean;
+  minimumOutputAmount: string | null;
+  priceImpactPercent: number;
+  estimatedInputUsd: number | null;
+  estimatedOutputUsd: number | null;
+  estimatedNetworkFeeUsd: number | null;
+  estimatedSeconds: number | null;
+  /** The platform fee already inside the route, in basis points. */
+  feeBps: number;
+  routeId: string | null;
+  interpretation: string | null;
+  transactions: UniversalSwapTransaction[];
+  warnings: string[];
+};
+
+export type UniversalSwapRouteStatus = {
+  routeId: string;
+  status: string;
+  filled: boolean;
+  destinationTransactionHash: string | null;
+};
+
 export type HivemindOSRun = {
   id: string;
   serviceId: HivemindOSPlatformServiceId;
@@ -861,6 +1032,25 @@ export class HivemindOSClient {
       "GET",
       walletId ? `/trading/positions?walletId=${encoded(walletId)}` : "/trading/positions",
     ),
+  };
+
+  readonly swaps = {
+    tokens: (query: { chainId?: number } = {}) =>
+      this.request<{ configured: boolean; chains: UniversalSwapChain[]; tokens: UniversalSwapToken[]; notes: Record<string, string> }>(
+        "GET", queryPath("/swaps/tokens", query),
+      ),
+    quote: (input: UniversalSwapQuoteRequest, options?: HivemindOSRequestOptions) =>
+      this.request<{ quote: UniversalSwapQuote; approval: HivemindOSApproval | null; walletProvisioned: UniversalSwapProvisionedWallet | null }>(
+        "POST", "/swaps/quote", input, options,
+      ),
+    execute: (input: { quoteId: string; approvalId?: string }, options?: HivemindOSRequestOptions) =>
+      this.request<{ swap: UniversalSwap }>("POST", "/swaps", input, options),
+    list: () => this.request<{ swaps: UniversalSwap[] }>("GET", "/swaps"),
+    get: (swapId: string) => this.request<{ swap: UniversalSwap }>("GET", `/swaps/${encoded(swapId)}`),
+    prepare: (input: UniversalSwapPrepareRequest, options?: HivemindOSRequestOptions) =>
+      this.request<{ custody: "self"; expiresInSeconds: number; route: UniversalSwapRoute }>("POST", "/swaps/prepare", input, options),
+    routeStatus: (routeId: string) =>
+      this.request<UniversalSwapRouteStatus>("GET", `/swaps/routes/${encoded(routeId)}`),
   };
 
   readonly runs = {
