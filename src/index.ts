@@ -143,6 +143,7 @@ export function defineConnectorManifest<
 }
 
 export * from "./platform.ts";
+export * from "./transport.ts";
 
 export const AGENT_PLUGINS_VERSION = "1.0.0" as const;
 export const AGENT_PLUGIN_SCHEMA_ID = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json" as const;

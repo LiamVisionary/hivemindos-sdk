@@ -17,7 +17,7 @@ It does **not** contain the HivemindOS application, orchestration engine, hosted
 ## Install
 
 ```bash
-npm install https://github.com/LiamVisionary/hivemindos-sdk/releases/download/v1.5.0/hivemindos-sdk-1.5.0.tgz
+npm install https://github.com/LiamVisionary/hivemindos-sdk/releases/download/v1.6.0/hivemindos-sdk-1.6.0.tgz
 ```
 
 It works with npm, pnpm and yarn, and is imported as `@hivemindos/sdk`. Installing straight from GitHub (`npm install github:LiamVisionary/hivemindos-sdk`) also works with npm, which builds it during install.
@@ -109,7 +109,33 @@ const workspaces = await hivemind.databases.query({ action: "list-workspaces" })
 if (!workspaces.ok) throw new Error(workspaces.error);
 ```
 
-The default base URL is `https://api.hivemindos.app/v1`. Mutations require an idempotency key. Use separate least-privilege keys for execution and approvals. HivemindOS credits pay for metered managed-service usage; managed database capacity is included with eligible subscriptions. Wallet assets remain separate and fund transfers or trades.
+The default base URL is `https://api.hivemindos.app/v1`. Mutations require an idempotency key; when you do not pass one, the client generates one for that call. Use separate least-privilege keys for execution and approvals. HivemindOS credits pay for metered managed-service usage; managed database capacity is included with eligible subscriptions. Wallet assets remain separate and fund transfers or trades.
+
+### Timeouts, retries and failures
+
+Every attempt has a deadline (`timeoutMs`, default 60 seconds). Retries are off by default; set `retries` on the client or on one call to retry a `429`, `502`, `503`, `504`, a timeout, or a network error with exponential backoff and jitter. A retry waits at least as long as `Retry-After` asks; a wait longer than `maxRetryDelayMs` (default 30 seconds) is returned to you instead of slept through. Every attempt of one call sends the same idempotency key, so a retried mutation is never applied twice. A `400`-class answer is never retried.
+
+```ts
+const hivemind = new HivemindOSClient({ apiKey: process.env.HIVEMINDOS_API_KEY!, retries: 2 });
+
+const research = await hivemind.services.invokeOperation(
+  "hive-research",
+  "analyses.create",
+  { topic: "Agent-safe payment rails" },
+  { idempotencyKey: "research-run-43", timeoutMs: 120_000 },
+);
+if (!research.ok) {
+  // status 503 / code "upstream_unavailable": retry later with research.idempotencyKey.
+  // status 400 / code "upstream_rejected": fix the request.
+  console.log(research.status, research.code, research.upstreamStatus, research.retryAfter, research.retryable);
+}
+```
+
+Failed results never throw. They carry `status` (the HTTP status; `504` with `code: "timeout"` when no answer arrived in time, `0` with `code: "network_error"` when none arrived at all), `code`, `upstreamStatus` for a managed service's own status, `retryAfter` in seconds, `retryable`, `attempts`, and the `idempotencyKey` to retry with. Pass `signal` to cancel a call yourself; that throws the signal's reason and is not retried. Downloads (`files.download`, `artifacts.download`, `databases.downloadArchive`) still return the raw `Response` and throw `HivemindOSRequestError` on a timeout or network error.
+
+### End users
+
+When your app serves its own users, pass `endUserId` on the client or on one call to scope requests to that user (sent as the `x-hivemindos-end-user` header), or create a key bound to one with `apiKeys.create({ ..., endUserId })`. A bound key, and every key made from it, only ever acts for that end user.
 
 ## Remote MCP
 
@@ -136,7 +162,7 @@ The SDK exports this address as `HIVEMINDOS_SUPERAGENT_MCP_URL`. MCP keys need `
 Give the client an x402-aware `fetch` implementation, then call the credit top-up endpoint. The API returns an HTTP 402 challenge, the x402 client pays it on Base, and the retry credits the API key's existing HivemindOS account. HivemindOS fixes the recipient, network, asset, amount, and credited account server-side.
 
 ```bash
-npm install https://github.com/LiamVisionary/hivemindos-sdk/releases/download/v1.5.0/hivemindos-sdk-1.5.0.tgz @x402/fetch @x402/evm viem
+npm install https://github.com/LiamVisionary/hivemindos-sdk/releases/download/v1.6.0/hivemindos-sdk-1.6.0.tgz @x402/fetch @x402/evm viem
 ```
 
 ```ts

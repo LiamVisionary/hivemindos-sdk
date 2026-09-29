@@ -1,4 +1,14 @@
 import type { ApiEnvelope, JsonValue } from "./index.ts";
+import {
+  HIVEMINDOS_END_USER_HEADER,
+  generateIdempotencyKey,
+  requestEnvelope,
+  requestRaw,
+  resolveRetryPolicy,
+  type HivemindOSResponseMeta,
+  type HivemindOSRetryOptions,
+  type TransportRequest,
+} from "./transport.ts";
 
 export const HIVEMINDOS_PLATFORM_API_VERSION = "v1" as const;
 export const HIVEMINDOS_PLATFORM_API_BASE_URL = "https://api.hivemindos.app/v1" as const;
@@ -222,11 +232,15 @@ export type HivemindOSEndpointLimit = {
 
 export type HivemindOSApiKeyLimits = Partial<Record<HivemindOSPlatformOperationId, HivemindOSEndpointLimit>>;
 
-export type HivemindOSPlatformFailure = {
+export type HivemindOSPlatformFailure = HivemindOSResponseMeta & {
   code?: string;
   operationId?: HivemindOSPlatformOperationId;
   metric?: keyof HivemindOSEndpointLimit;
   retryAfterSeconds?: number;
+  /** Set when a managed service invocation failed. */
+  serviceId?: HivemindOSPlatformServiceId;
+  chargedCredits?: number;
+  result?: JsonValue;
 };
 
 export type HivemindOSApiKeyServiceSelection =
@@ -245,6 +259,8 @@ export type HivemindOSApiKeyCreate = {
   limits?: HivemindOSApiKeyLimits;
   /** Pin the key, and every key made from it, to this tier or a stricter one. */
   privacy?: HivemindOSPrivacyTier;
+  /** Bind the key, and every key made from it, to one of your own end users. */
+  endUserId?: string;
 } & HivemindOSApiKeyServiceSelection & HivemindOSApiKeyOperationSelection;
 
 export type HivemindOSPlatformService = {
@@ -304,7 +320,10 @@ export type HivemindOSPlatformAction = {
 export type HivemindOSManagedInvocation<TResult = JsonValue> = {
   serviceId: HivemindOSPlatformServiceId;
   operationId: string | null;
+  /** The HTTP status of this response. */
   status: number;
+  /** The managed service's own HTTP status. */
+  upstreamStatus?: number;
   chargedCredits: number;
   result: TResult;
 };
@@ -482,6 +501,7 @@ export type HivemindOSApiKey = {
   createdAt: string;
   lastUsedAt: string | null;
   privacy: HivemindOSPrivacyTier;
+  endUserId?: string | null;
 };
 
 export type ManagedWalletNetwork = "base" | "base-sepolia" | "ethereum" | "ethereum-sepolia" | "solana" | "solana-devnet";
@@ -836,18 +856,29 @@ export type HivemindOSWebhookDelivery = {
   updatedAt: string;
 };
 
-export type HivemindOSClientOptions = {
+export type HivemindOSClientOptions = HivemindOSRetryOptions & {
   apiKey: string;
   projectId?: string;
+  /** Scope every call to one of your own end users (the `x-hivemindos-end-user` header). */
+  endUserId?: string;
   baseUrl?: string;
   /** Call the API held to this privacy tier (its base URL). Not with baseUrl. */
   privacy?: HivemindOSPrivacyTier;
   fetch?: typeof globalThis.fetch;
 };
 
-export type HivemindOSRequestOptions = {
+/** Per-call options. `timeoutMs`, `retries`, `retryDelayMs` and `maxRetryDelayMs` override the client's. */
+export type HivemindOSRequestOptions = HivemindOSRetryOptions & {
+  /**
+   * Sent on every attempt. When omitted, a mutating call (anything but GET)
+   * gets a generated one, reused by its retries and returned on a failure.
+   */
   idempotencyKey?: string;
   headers?: HeadersInit;
+  /** Overrides the client's `endUserId` for this call. */
+  endUserId?: string;
+  /** Cancel the call. Aborting throws the signal's reason and is never retried. */
+  signal?: AbortSignal;
 };
 
 function encoded(value: string): string {
@@ -937,7 +968,7 @@ export class HivemindOSClient {
     list: () => this.request<{ files: HivemindOSFile[] }>("GET", "/files"),
     upload: (input: { name: string; contentType: string; bytes: Uint8Array<ArrayBuffer> | ArrayBuffer; purpose?: string; sha256?: string }, options?: HivemindOSRequestOptions) =>
       this.uploadFile(input, options),
-    download: (id: string) => this.rawRequest("GET", `/files/${encoded(id)}`, { accept: "*/*" }),
+    download: (id: string, options?: HivemindOSRequestOptions) => this.rawRequest("GET", `/files/${encoded(id)}`, { accept: "*/*" }, options),
     remove: (id: string, options?: HivemindOSRequestOptions) =>
       this.request<{ file: HivemindOSFile }>("DELETE", `/files/${encoded(id)}`, undefined, options),
   };
@@ -994,7 +1025,8 @@ export class HivemindOSClient {
       this.request<{ migration: HivemindOSDatabaseTransfer }>("POST", `/databases/transfers/${encoded(transferId)}/complete`, {}, options),
     getTransfer: (transferId: string) =>
       this.request<{ migration: HivemindOSDatabaseTransfer }>("GET", `/databases/transfers/${encoded(transferId)}`),
-    downloadArchive: (transferId: string) => this.rawRequest("GET", `/databases/transfers/${encoded(transferId)}/archive`, { accept: "application/zip" }),
+    downloadArchive: (transferId: string, options?: HivemindOSRequestOptions) =>
+      this.rawRequest("GET", `/databases/transfers/${encoded(transferId)}/archive`, { accept: "application/zip" }, options),
     cancelTransfer: (transferId: string, options?: HivemindOSRequestOptions) =>
       this.request<{ migration: HivemindOSDatabaseTransfer }>("DELETE", `/databases/transfers/${encoded(transferId)}`, undefined, options),
   };
@@ -1094,7 +1126,7 @@ export class HivemindOSClient {
       "GET",
       runId ? `/artifacts?runId=${encoded(runId)}` : "/artifacts",
     ),
-    download: (id: string) => this.rawRequest("GET", `/artifacts/${encoded(id)}/content`, { accept: "*/*" }),
+    download: (id: string, options?: HivemindOSRequestOptions) => this.rawRequest("GET", `/artifacts/${encoded(id)}/content`, { accept: "*/*" }, options),
   };
 
   readonly webhooks = {
@@ -1120,17 +1152,27 @@ export class HivemindOSClient {
 
   private readonly apiKey: string;
   private readonly projectId: string | null;
+  private readonly endUserId: string | null;
   private readonly baseUrl: string;
   private readonly fetcher: typeof globalThis.fetch;
+  private readonly retryOptions: HivemindOSRetryOptions;
 
   constructor(options: HivemindOSClientOptions) {
     const apiKey = options.apiKey.trim();
     if (!apiKey) throw new Error("A HivemindOS API key is required.");
     this.apiKey = apiKey;
     this.projectId = options.projectId?.trim() || null;
+    this.endUserId = options.endUserId?.trim() || null;
     this.baseUrl = platformBaseUrl(options);
     this.fetcher = options.fetch ?? globalThis.fetch;
     if (!this.fetcher) throw new Error("A fetch implementation is required.");
+    this.retryOptions = {
+      timeoutMs: options.timeoutMs,
+      retries: options.retries,
+      retryDelayMs: options.retryDelayMs,
+      maxRetryDelayMs: options.maxRetryDelayMs,
+    };
+    resolveRetryPolicy(this.retryOptions);
   }
 
   async request<TSuccess extends Record<string, unknown>>(
@@ -1139,23 +1181,26 @@ export class HivemindOSClient {
     body?: Record<string, unknown>,
     options: HivemindOSRequestOptions = {},
   ): Promise<ApiEnvelope<TSuccess, HivemindOSPlatformFailure>> {
+    const headers = this.baseHeaders(method, options, "application/json");
+    if (body !== undefined) headers.set("content-type", "application/json");
+    return requestEnvelope<TSuccess, HivemindOSPlatformFailure>(this.transport(method, `${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`, headers, options, body === undefined ? undefined : JSON.stringify(body)));
+  }
+
+  /** Headers every call carries. A mutating call always has an idempotency key, so its retries cannot act twice. */
+  private baseHeaders(method: string, options: HivemindOSRequestOptions, accept: string) {
     const headers = new Headers(options.headers);
-    headers.set("accept", "application/json");
+    headers.set("accept", accept);
     headers.set("authorization", `Bearer ${this.apiKey}`);
     if (this.projectId) headers.set("x-hivemindos-project", this.projectId);
-    if (body !== undefined) headers.set("content-type", "application/json");
-    if (options.idempotencyKey) headers.set("idempotency-key", options.idempotencyKey);
-    const response = await this.fetcher(`${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const payload = await response.json().catch(() => null) as ApiEnvelope<TSuccess, HivemindOSPlatformFailure> | null;
-    if (payload && typeof payload === "object" && "ok" in payload) return payload;
-    return {
-      ok: false,
-      error: response.ok ? "HivemindOS returned an invalid response." : `HivemindOS request failed with HTTP ${response.status}.`,
-    };
+    const endUserId = options.endUserId?.trim() || this.endUserId;
+    if (endUserId) headers.set(HIVEMINDOS_END_USER_HEADER, endUserId);
+    const idempotencyKey = options.idempotencyKey?.trim() || headers.get("idempotency-key")?.trim() || (method === "GET" ? "" : generateIdempotencyKey());
+    if (idempotencyKey) headers.set("idempotency-key", idempotencyKey);
+    return headers;
+  }
+
+  private transport(method: string, url: string, headers: Headers, options: HivemindOSRequestOptions, body?: string | Uint8Array<ArrayBuffer>): TransportRequest {
+    return { fetcher: this.fetcher, url, method, headers, body, policy: resolveRetryPolicy(this.retryOptions, options), signal: options.signal };
   }
 
   private async uploadDatabasePart(
@@ -1167,22 +1212,12 @@ export class HivemindOSClient {
     if (!Number.isSafeInteger(partNumber) || partNumber < 1 || partNumber > 10_000) throw new Error("A valid database transfer part number is required.");
     const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
     if (bytes.byteLength < 1 || bytes.byteLength > 8 * 1024 * 1024) throw new Error("Database transfer parts must be between 1 byte and 8 MB.");
-    const headers = new Headers(options.headers);
-    headers.set("accept", "application/json");
-    headers.set("authorization", `Bearer ${this.apiKey}`);
-    if (this.projectId) headers.set("x-hivemindos-project", this.projectId);
+    const headers = this.baseHeaders("PUT", options, "application/json");
     headers.set("content-type", "application/zip");
     headers.set("content-length", String(bytes.byteLength));
-    if (options.idempotencyKey) headers.set("idempotency-key", options.idempotencyKey);
-    const response = await this.fetcher(`${this.baseUrl}/databases/transfers/${encoded(transferId)}/parts/${partNumber}`, {
-      method: "PUT",
-      headers,
-      body: bytes,
-    });
-    const payload = await response.json().catch(() => null) as ApiEnvelope<{ partNumber: number; bytes: number }, HivemindOSPlatformFailure> | null;
-    return payload && typeof payload === "object" && "ok" in payload
-      ? payload
-      : { ok: false, error: `HivemindOS request failed with HTTP ${response.status}.` };
+    return requestEnvelope<{ partNumber: number; bytes: number }, HivemindOSPlatformFailure>(
+      this.transport("PUT", `${this.baseUrl}/databases/transfers/${encoded(transferId)}/parts/${partNumber}`, headers, options, bytes),
+    );
   }
 
   private async uploadFile(
@@ -1193,51 +1228,43 @@ export class HivemindOSClient {
     if (!name || name.length > 180) throw new Error("A file name up to 180 characters is required.");
     const bytes = input.bytes instanceof Uint8Array ? input.bytes : new Uint8Array(input.bytes);
     if (bytes.byteLength < 1 || bytes.byteLength > 25 * 1024 * 1024) throw new Error("Files must be between 1 byte and 25 MB.");
-    const headers = new Headers(options.headers);
-    headers.set("accept", "application/json");
-    headers.set("authorization", `Bearer ${this.apiKey}`);
+    const headers = this.baseHeaders("POST", options, "application/json");
     headers.set("content-type", input.contentType);
     headers.set("content-length", String(bytes.byteLength));
     headers.set("x-file-name", name);
     if (input.purpose) headers.set("x-hivemindos-file-purpose", input.purpose);
     if (input.sha256) headers.set("x-content-sha256", input.sha256);
-    if (this.projectId) headers.set("x-hivemindos-project", this.projectId);
-    if (options.idempotencyKey) headers.set("idempotency-key", options.idempotencyKey);
-    const response = await this.fetcher(`${this.baseUrl}/files`, { method: "POST", headers, body: bytes });
-    const payload = await response.json().catch(() => null) as ApiEnvelope<{ file: HivemindOSFile }, HivemindOSPlatformFailure> | null;
-    return payload && typeof payload === "object" && "ok" in payload
-      ? payload
-      : { ok: false, error: `HivemindOS request failed with HTTP ${response.status}.` };
+    return requestEnvelope<{ file: HivemindOSFile }, HivemindOSPlatformFailure>(this.transport("POST", `${this.baseUrl}/files`, headers, options, bytes));
   }
 
-  private rawRequest(method: "GET", path: string, input: { accept: string }) {
-    const headers = new Headers({ accept: input.accept, authorization: `Bearer ${this.apiKey}` });
-    if (this.projectId) headers.set("x-hivemindos-project", this.projectId);
-    return this.fetcher(`${this.baseUrl}${path}`, {
-      method,
-      headers,
-    });
+  /** A download. Its deadline covers the wait for the response to start; a timeout or network error throws HivemindOSRequestError. */
+  private rawRequest(method: "GET", path: string, input: { accept: string }, options: HivemindOSRequestOptions = {}) {
+    return requestRaw(this.transport(method, `${this.baseUrl}${path}`, this.baseHeaders(method, options, input.accept), options));
   }
 }
 
-export async function createHivemindOSApiKey(input: HivemindOSApiKeyCreate & {
+export async function createHivemindOSApiKey(input: HivemindOSApiKeyCreate & HivemindOSRetryOptions & {
   creditToken: string;
   idempotencyKey: string;
   baseUrl?: string;
   fetch?: typeof globalThis.fetch;
-}) {
+  signal?: AbortSignal;
+}): Promise<ApiEnvelope<{ apiKey: HivemindOSApiKey; secret: string }, HivemindOSPlatformFailure>> {
   const fetcher = input.fetch ?? globalThis.fetch;
   if (!fetcher) throw new Error("A fetch implementation is required.");
   // `privacy` pins the key in the request body, whatever base URL creates it.
   const baseUrl = (input.baseUrl?.trim() || HIVEMINDOS_PLATFORM_API_BASE_URL).replace(/\/+$/u, "");
-  const response = await fetcher(`${baseUrl}/api-keys`, {
+  const headers = new Headers({
+    accept: "application/json",
+    "content-type": "application/json",
+    "idempotency-key": input.idempotencyKey,
+    "x-hivemindos-credit-token": input.creditToken,
+  });
+  return requestEnvelope<{ apiKey: HivemindOSApiKey; secret: string }, HivemindOSPlatformFailure>({
+    fetcher,
+    url: `${baseUrl}/api-keys`,
     method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-      "idempotency-key": input.idempotencyKey,
-      "x-hivemindos-credit-token": input.creditToken,
-    },
+    headers,
     body: JSON.stringify({
       label: input.label,
       scopes: input.scopes,
@@ -1249,11 +1276,9 @@ export async function createHivemindOSApiKey(input: HivemindOSApiKeyCreate & {
       excludedOperations: input.excludedOperations,
       limits: input.limits,
       privacy: input.privacy,
+      endUserId: input.endUserId,
     }),
+    policy: resolveRetryPolicy(input),
+    signal: input.signal,
   });
-  const payload = await response.json().catch(() => null);
-  if (payload && typeof payload === "object" && "ok" in payload) {
-    return payload as ApiEnvelope<{ apiKey: HivemindOSApiKey; secret: string }, HivemindOSPlatformFailure>;
-  }
-  return { ok: false, error: `HivemindOS request failed with HTTP ${response.status}.` } as const;
 }
