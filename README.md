@@ -17,7 +17,7 @@ It does **not** contain the HivemindOS application, orchestration engine, hosted
 ## Install
 
 ```bash
-npm install https://github.com/LiamVisionary/hivemindos-sdk/releases/download/v1.6.0/hivemindos-sdk-1.6.0.tgz
+npm install https://github.com/LiamVisionary/hivemindos-sdk/releases/download/v1.7.0/hivemindos-sdk-1.7.0.tgz
 ```
 
 It works with npm, pnpm and yarn, and is imported as `@hivemindos/sdk`. Installing straight from GitHub (`npm install github:LiamVisionary/hivemindos-sdk`) also works with npm, which builds it during install.
@@ -162,7 +162,7 @@ The SDK exports this address as `HIVEMINDOS_SUPERAGENT_MCP_URL`. MCP keys need `
 Give the client an x402-aware `fetch` implementation, then call the credit top-up endpoint. The API returns an HTTP 402 challenge, the x402 client pays it on Base, and the retry credits the API key's existing HivemindOS account. HivemindOS fixes the recipient, network, asset, amount, and credited account server-side.
 
 ```bash
-npm install https://github.com/LiamVisionary/hivemindos-sdk/releases/download/v1.6.0/hivemindos-sdk-1.6.0.tgz @x402/fetch @x402/evm viem
+npm install https://github.com/LiamVisionary/hivemindos-sdk/releases/download/v1.7.0/hivemindos-sdk-1.7.0.tgz @x402/fetch @x402/evm viem
 ```
 
 ```ts
@@ -202,6 +202,18 @@ for (const tx of prepared.route.transactions) {
 ```
 
 The client also exposes project CRUD, usage and audit queries, 25 MB managed file uploads, protected connection metadata, input-bound service-action approvals, asynchronous runs, wallet and order history, and webhook update, secret-rotation, delivery-receipt, and replay methods.
+
+Cloud Superbrain has two conveniences. `memory.erase({ endUserId })` erases everything one of your app's end users has in memory in one call, for an account deletion: free, no approval, safe to repeat, and limited to that end user in the key's own account and project. `memory.answerStream(input, { endUserId })` returns a Memory Answer as it is written: it resolves once the first words are in (when its one charge is settled) with `events` (meta, delta, done or error); `collectMemoryAnswer` reads it whole. Memory writes may carry `occurredAt`, the original date of an imported memory, which recall ranks and dates it by.
+
+```ts
+import { collectMemoryAnswer } from "@hivemindos/sdk";
+
+const started = await hive.memory.answerStream({ query: "When is my driving test?" }, { endUserId: "user-42" });
+if (started.ok) {
+  for await (const event of started.events) if (event.type === "delta") process.stdout.write(event.text);
+}
+await hive.memory.erase({ endUserId: "user-42" });
+```
 
 Hive Compute and testnet faucet operations use the same client and account balance. Invoke their registered operation ids through `services.invokeOperation`; successful responses include the exact `chargedCredits`. Confidential compute inputs can be uploaded as managed ciphertext files and attached to the `artifacts.upload` binary capability with `fileIds`.
 

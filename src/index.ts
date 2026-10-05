@@ -143,6 +143,7 @@ export function defineConnectorManifest<
 }
 
 export * from "./platform.ts";
+export * from "./memory.ts";
 export * from "./transport.ts";
 
 export const AGENT_PLUGINS_VERSION = "1.0.0" as const;

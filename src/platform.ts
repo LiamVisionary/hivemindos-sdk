@@ -1,10 +1,19 @@
 import type { ApiEnvelope, JsonValue } from "./index.ts";
 import {
+  memoryAnswerEvents,
+  type HivemindOSMemoryAnswerInput,
+  type HivemindOSMemoryAnswerStream,
+  type HivemindOSMemoryErasure,
+} from "./memory.ts";
+import {
   HIVEMINDOS_END_USER_HEADER,
+  HivemindOSRequestError,
+  envelopeFromResponse,
   generateIdempotencyKey,
   requestEnvelope,
   requestRaw,
   resolveRetryPolicy,
+  transportFailureEnvelope,
   type HivemindOSResponseMeta,
   type HivemindOSRetryOptions,
   type TransportRequest,
@@ -934,6 +943,70 @@ export class HivemindOSClient {
       files: options?.fileIds?.map((fileId) => ({ fileId })),
       connectionId: options?.connectionId,
     }, options),
+  };
+
+  /**
+   * Cloud Superbrain conveniences over `services.invokeOperation("cloud-superbrain", ...)`. Pass `endUserId`
+   * (here or on the client) to act for one of your app's end users.
+   */
+  readonly memory = {
+    /**
+     * Erases everything one end user has in memory, for good: every memory, its past versions and indexes.
+     * For an account deletion. It needs an end user (the client's or this call's `endUserId`, or a key bound
+     * to one) and reaches only that end user in this key's account and project. Free, needs no approval, and
+     * safe to repeat; `complete: false` means call again.
+     */
+    erase: (options?: HivemindOSRequestOptions) =>
+      this.services.invokeOperation<HivemindOSMemoryErasure>("cloud-superbrain", "memory.erase", {}, options),
+    /**
+     * A Memory Answer read as it is written (memory.answer with stream: true), at the same price as a buffered
+     * one. Resolves once the reader's first words are in, which is when its one charge is settled: a reader that
+     * fails before that is not charged and comes back as `{ ok: false }`. Read `events` for meta, the answer in
+     * parts, then done; `collectMemoryAnswer` reads it whole.
+     */
+    answerStream: async (
+      input: HivemindOSMemoryAnswerInput,
+      options: HivemindOSRequestOptions = {},
+    ): Promise<ApiEnvelope<HivemindOSMemoryAnswerStream, HivemindOSPlatformFailure>> => {
+      const headers = this.baseHeaders("POST", options, "text/event-stream, application/json");
+      headers.set("content-type", "application/json");
+      const request = this.transport("POST", `${this.baseUrl}/services/cloud-superbrain/invoke`, headers, options, JSON.stringify({
+        operationId: "memory.answer",
+        input: { ...input, stream: true },
+      }));
+      let response: Response;
+      try {
+        response = await requestRaw(request);
+      } catch (error) {
+        if (error instanceof HivemindOSRequestError) return transportFailureEnvelope(error, request) as ApiEnvelope<HivemindOSMemoryAnswerStream, HivemindOSPlatformFailure>;
+        throw error;
+      }
+      if (!(response.headers.get("content-type") || "").includes("text/event-stream") || !response.body) {
+        const text = await response.text().catch(() => "");
+        let value: unknown = null;
+        try { value = JSON.parse(text); } catch { /* not JSON */ }
+        const envelope = envelopeFromResponse<Record<string, unknown>, HivemindOSPlatformFailure>(response, value, 1, headers.get("idempotency-key") ?? undefined);
+        // A success that is not a stream would be an older API; it is reported, not guessed at.
+        return (envelope.ok
+          ? { ok: false, error: "HivemindOS answered without streaming.", code: "invalid_response", status: response.status, retryable: false, attempts: 1 }
+          : envelope) as ApiEnvelope<HivemindOSMemoryAnswerStream, HivemindOSPlatformFailure>;
+      }
+      const body = response.body;
+      const charged = Number(response.headers.get("x-hivemindos-credits-charged") ?? 0);
+      // cancel(), or the caller's own signal, stops the stream mid-read.
+      const stop = new AbortController();
+      options.signal?.addEventListener("abort", () => stop.abort(options.signal?.reason), { once: true });
+      return {
+        ok: true,
+        chargedCredits: Number.isFinite(charged) ? charged : 0,
+        events: memoryAnswerEvents(body, stop.signal),
+        cancel: async () => {
+          stop.abort();
+          // A stream nobody started reading is cancelled here; a locked one by the reader above.
+          await body.cancel().catch(() => undefined);
+        },
+      };
+    },
   };
 
   readonly actions = {

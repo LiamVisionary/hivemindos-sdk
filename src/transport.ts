@@ -1,4 +1,4 @@
-import type { ApiEnvelope } from "./index.ts";
+import type { ApiEnvelope, ApiFailure } from "./index.ts";
 
 /**
  * How the SuperAgent API client sends one request: a deadline per attempt,
@@ -272,6 +272,17 @@ export async function requestEnvelope<TSuccess extends Record<string, unknown>, 
     } as unknown as Result;
   }
   const { response, value, attempts } = outcome;
+  return envelopeFromResponse<TSuccess, TFailure>(response, value, attempts, idempotencyKey);
+}
+
+/** The envelope for one response whose body was read as `value` (JSON or null): its success, or a failure that says why. */
+export function envelopeFromResponse<TSuccess extends Record<string, unknown>, TFailure extends Record<string, unknown>>(
+  response: Response,
+  value: unknown,
+  attempts: number,
+  idempotencyKey?: string,
+): ApiEnvelope<TSuccess, TFailure & HivemindOSResponseMeta> {
+  type Result = ApiEnvelope<TSuccess, TFailure & HivemindOSResponseMeta>;
   if (isEnvelope(value) && value.ok) return value as unknown as Result;
   const payload = isEnvelope(value) ? value : null;
   const status = typeof payload?.status === "number" ? payload.status : response.status;
@@ -290,6 +301,20 @@ export async function requestEnvelope<TSuccess extends Record<string, unknown>, 
     attempts,
     ...(idempotencyKey ? { idempotencyKey } : {}),
   } as unknown as Result;
+}
+
+/** The envelope for a call that never got a response (a timeout or network error). */
+export function transportFailureEnvelope(error: HivemindOSRequestError, request: Pick<TransportRequest, "headers" | "policy">): ApiFailure<HivemindOSResponseMeta> {
+  const idempotencyKey = request.headers.get("idempotency-key") ?? undefined;
+  return {
+    ok: false,
+    error: error.message || transportFailureMessage(error.code, request.policy),
+    code: error.code,
+    status: error.status,
+    retryable: true,
+    attempts: error.attempts,
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+  } as unknown as ApiFailure<HivemindOSResponseMeta>;
 }
 
 /**
