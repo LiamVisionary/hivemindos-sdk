@@ -105,6 +105,7 @@ export const HIVEMINDOS_PLATFORM_SERVICE_IDS = [
   "managed-models",
   "cloud-superbrain",
   "leadgen-data",
+  "web-data",
   "managed-wallets",
   "managed-trading",
   "universal-swaps",
